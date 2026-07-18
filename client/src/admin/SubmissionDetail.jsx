@@ -49,11 +49,22 @@ export default function SubmissionDetail() {
       </div>
       {err && <div className="alert err">{err}</div>}
 
-      <div className="grid cols-3">
+      <div className="grid cols-4">
         <div className="stat"><div className="lbl">Status</div><div className="num">{s.status ? <span className="badge" style={{ background: s.status.color, fontSize: 15 }}>{s.status.name}</span> : (s.isDraft ? 'Draft' : '—')}</div></div>
         <div className="stat"><div className="lbl">Payment</div><div className="num" style={{ fontSize: 18 }}>{s.paymentStatus} {Number(s.amount) > 0 ? `· ₹${Number(s.amount).toFixed(0)}` : ''}</div></div>
         <div className="stat"><div className="lbl">Applicant</div><div className="num" style={{ fontSize: 18 }}>{s.applicant?.name || '—'}</div><div className="muted">{s.applicant?.phone} {s.applicant?.email ? '· ' + s.applicant.email : ''}</div></div>
+        <div className="stat">
+          <div className="lbl">Auto Score</div>
+          <div className="num" style={{ color: (s.score ?? 0) >= 50 ? '#16a34a' : (s.score ?? 0) >= 25 ? '#d97706' : undefined }}>{s.score ?? '—'}<span style={{ fontSize: 14, color: '#64748b' }}>/100</span></div>
+          {(() => { try { return JSON.parse(s.scoreDetails || '[]').map((d, i) => <div key={i} className="muted" style={{ fontSize: 11.5 }}>{d}</div>); } catch { return null; } })()}
+        </div>
       </div>
+      {(() => {
+        try {
+          const flags = JSON.parse(s.flags || '[]');
+          return flags.length ? <div className="alert err" style={{ marginTop: 12 }}><b>⚠️ Auto-detected warnings:</b> {flags.join(' · ')}</div> : null;
+        } catch { return null; }
+      })()}
 
       <div className="grid cols-2" style={{ marginTop: 16, alignItems: 'start' }}>
         <div>

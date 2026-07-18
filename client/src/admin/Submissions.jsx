@@ -7,6 +7,7 @@ export default function Submissions() {
   const [activations, setActivations] = useState([]);
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState([]);
+  const [sortByScore, setSortByScore] = useState(false);
   const [bulkStatus, setBulkStatus] = useState('');
   const [err, setErr] = useState('');
   const [f, setF] = useState(() => ({
@@ -119,24 +120,34 @@ export default function Submissions() {
           <thead>
             <tr>
               <th><input type="checkbox" checked={sel.length === rows.length && rows.length > 0} onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.id) : [])} /></th>
-              <th>Form No</th><th>Applicant</th><th>Form</th><th>Class</th><th>Status</th><th>Payment</th><th>Submitted</th><th></th>
+              <th>Form No</th><th>Applicant</th><th>Form</th><th>Class</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => setSortByScore(!sortByScore)} title="Auto-computed admission priority — click to sort">
+                Score {sortByScore ? '▼' : '⇅'}
+              </th>
+              <th>Status</th><th>Payment</th><th>Submitted</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {(sortByScore ? [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1)) : rows).map((r) => (
               <tr key={r.id}>
                 <td><input type="checkbox" checked={sel.includes(r.id)} onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td>
                 <td><Link to={`/admin/submissions/${r.id}`}><b>{r.formNo || (r.isDraft ? 'DRAFT' : '—')}</b></Link></td>
                 <td>{r.applicant?.name || '—'}<div className="muted">{r.applicant?.phone}</div></td>
                 <td>{r.activation?.title}</td>
                 <td>{r.activation?.classRoom?.name}</td>
+                <td>
+                  {r.score != null ? (
+                    <b style={{ color: r.score >= 50 ? '#16a34a' : r.score >= 25 ? '#d97706' : '#64748b' }}>{r.score}</b>
+                  ) : <span className="muted">—</span>}
+                  {(() => { try { return JSON.parse(r.flags || '[]').length ? <span title="Possible duplicate — open for details"> ⚠️</span> : null; } catch { return null; } })()}
+                </td>
                 <td>{r.status ? <span className="badge" style={{ background: r.status.color }}>{r.status.name}</span> : <span className="pill">{r.isDraft ? 'Draft' : '—'}</span>}</td>
                 <td>{r.paymentStatus === 'paid' ? <span className="pill on">₹{Number(r.amount).toFixed(0)} paid</span> : <span className="pill">{r.paymentStatus}</span>}</td>
                 <td className="muted">{r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-IN') : '—'}</td>
                 <td><button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/submissions/${r.id}/pdf`, `form-${r.formNo || r.id}.pdf`)}>PDF</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={9} className="muted">No submissions match the filters.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="muted">No submissions match the filters.</td></tr>}
           </tbody>
         </table>
       </div>

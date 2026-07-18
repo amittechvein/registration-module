@@ -32,6 +32,29 @@ async function sendEmail(to, subject, body) {
 
 async function sendSms(phone, message) {
   if (!phone) return false;
+  // Infobip (query API) — set INFOBIP_USERNAME / INFOBIP_PASSWORD / INFOBIP_SENDER in env
+  if (process.env.INFOBIP_USERNAME && process.env.INFOBIP_PASSWORD) {
+    try {
+      const url =
+        (process.env.INFOBIP_BASE_URL || 'https://api.infobip.com') +
+        '/sms/1/text/query?' +
+        new URLSearchParams({
+          username: process.env.INFOBIP_USERNAME,
+          password: process.env.INFOBIP_PASSWORD,
+          from: process.env.INFOBIP_SENDER || 'TCVEIN',
+          to: (process.env.SMS_COUNTRY_CODE || '') + phone,
+          text: message,
+        }).toString();
+      const res = await fetch(url);
+      const body = await res.text();
+      const ok = res.ok && !/REJECTED|error/i.test(body);
+      if (!ok) console.error('[sms:infobip] response:', body.slice(0, 300));
+      return ok;
+    } catch (e) {
+      console.error('[sms:infobip] send failed:', e.message);
+      return false;
+    }
+  }
   if (process.env.MSG91_AUTH_KEY) {
     try {
       const res = await fetch('https://control.msg91.com/api/v5/flow/', {

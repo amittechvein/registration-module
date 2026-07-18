@@ -101,6 +101,9 @@ const Submission = sequelize.define('Submission', {
   submittedAt: DataTypes.DATE,
   amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
   paymentStatus: { type: DataTypes.STRING, defaultValue: 'na' }, // na | pending | paid | failed
+  score: { type: DataTypes.INTEGER, allowNull: true }, // auto-computed admission priority (0-100)
+  scoreDetails: { type: DataTypes.TEXT }, // JSON: score breakdown lines
+  flags: { type: DataTypes.TEXT }, // JSON: auto-detected warnings (duplicates etc.)
 });
 
 const Payment = sequelize.define('Payment', {

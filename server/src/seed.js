@@ -18,6 +18,9 @@ async function ensureSeed() {
     const names = ['Nursery', 'LKG', 'UKG', ...Array.from({ length: 12 }, (_, i) => `Class ${i + 1}`)];
     await ClassRoom.bulkCreate(names.map((name, i) => ({ name, sortOrder: i })));
   }
+  // Auto-create the pre-built Nursery form (from the school's PDF) if missing
+  const { ensurePrebuiltForms } = require('./prebuilt');
+  await ensurePrebuiltForms();
 }
 
 if (require.main === module) {

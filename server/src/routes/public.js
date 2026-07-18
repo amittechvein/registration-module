@@ -9,6 +9,7 @@ const {
 } = require('../models');
 const { sign, applicantAuth } = require('../middleware/auth');
 const { validateSubmission } = require('../services/validate');
+const { scoreSubmission, detectDuplicates } = require('../services/scoring');
 const payment = require('../services/payment');
 const { notifyStatusChange } = require('../services/notify');
 
@@ -58,7 +59,11 @@ router.post('/auth/request-otp', async (req, res) => {
   const [applicant] = await Applicant.findOrCreate({ where: { phone }, defaults: { phone } });
   await applicant.update({ otp: bcrypt.hashSync(otp, 8), otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0 });
   const { sendSms } = require('../services/notify');
-  await sendSms(phone, `Your admission portal OTP is ${otp}. Valid for 10 minutes. Do not share it with anyone.`);
+  // OTP SMS text must match your DLT-registered template for delivery in India.
+  // Override with OTP_SMS_TEMPLATE env var; {{otp}} is replaced with the code.
+  const otpTemplate = process.env.OTP_SMS_TEMPLATE ||
+    'The one time password for your account is {{otp}}.Please use the password to verify the account. Thanks!TECHVEIN IT SOLUTIONS PVT LTD';
+  await sendSms(phone, otpTemplate.replace('{{otp}}', otp));
   const devShow = String(process.env.DEV_SHOW_OTP || 'true') === 'true';
   res.json({ ok: true, ...(devShow ? { devOtp: otp } : {}) });
 });
@@ -195,6 +200,15 @@ router.post('/forms/:slug/submit', async (req, res) => {
   if (sub) await sub.update({ data: JSON.stringify(data) });
   else sub = await Submission.create({ activationId: a.id, applicantId: req.applicant.id, data: JSON.stringify(data), isDraft: true });
   await linkAttachments(sub, data, req.applicant.id);
+
+  // Automatic screening: score the application and detect duplicates
+  try {
+    const [{ score, details }, flags] = await Promise.all([
+      scoreSubmission(a, data),
+      detectDuplicates(a, data, sub.id),
+    ]);
+    await sub.update({ score, scoreDetails: JSON.stringify(details), flags: JSON.stringify(flags) });
+  } catch (e) { console.error('[scoring]', e.message); }
 
   const price = Number(a.price || 0);
   if (price > 0 && a.onlinePaymentEnabled) {
