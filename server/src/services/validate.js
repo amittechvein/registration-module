@@ -19,6 +19,12 @@ async function validateSubmission(activation, data) {
         errors.push(`${field.label} is required`);
         continue;
       }
+      if (field.fieldType === 'file') {
+        if (field.required && !(value && typeof value === 'object' && value.attachmentId)) {
+          if (!errors.includes(`${field.label} is required`)) errors.push(`${field.label} is required`);
+        }
+        continue;
+      }
       if (empty) continue;
 
       let rules = {};

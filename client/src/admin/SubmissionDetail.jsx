@@ -64,12 +64,23 @@ export default function SubmissionDetail() {
                 <div className="section-title">{sec.title}</div>
                 <table className="tbl">
                   <tbody>
-                    {sec.fields.map((fld) => (
-                      <tr key={fld.id}>
-                        <td style={{ width: '45%' }} className="muted">{fld.label}{fld.studentField ? ' 🔗' : ''}</td>
-                        <td><b>{Array.isArray(data[fld.id]) ? data[fld.id].join(', ') : (data[fld.id] ?? '—')}</b></td>
-                      </tr>
-                    ))}
+                    {sec.fields.map((fld) => {
+                      const v = data[fld.id];
+                      return (
+                        <tr key={fld.id}>
+                          <td style={{ width: '45%' }} className="muted">{fld.label}{fld.studentField ? ' 🔗' : ''}</td>
+                          <td>
+                            {v && typeof v === 'object' && !Array.isArray(v) && v.attachmentId ? (
+                              <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${v.attachmentId}`, v.filename || 'document')}>
+                                📎 {v.filename || 'Download file'}
+                              </button>
+                            ) : (
+                              <b>{Array.isArray(v) ? v.join(', ') : (v ?? '—')}</b>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

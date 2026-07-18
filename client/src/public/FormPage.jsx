@@ -3,10 +3,47 @@ import { useParams, Link } from 'react-router-dom';
 import { publicApi, errMsg } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
 
+function FileUpload({ field, value, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr('');
+    if (file.size > 5 * 1024 * 1024) { setErr('File must be smaller than 5 MB'); return; }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await publicApi.post('/uploads', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      onChange({ attachmentId: data.id, filename: data.filename, sizeBytes: data.sizeBytes });
+    } catch (e2) { setErr(errMsg(e2)); }
+    setBusy(false);
+  };
+  return (
+    <div>
+      {value?.attachmentId ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5 }}>
+          <span className="pill on">📎 {value.filename}</span>
+          <label className="btn small ghost" style={{ cursor: 'pointer' }}>
+            Replace<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" hidden onChange={pick} />
+          </label>
+        </div>
+      ) : (
+        <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" onChange={pick} disabled={busy} style={{ marginTop: 5 }} />
+      )}
+      <div className="muted">{busy ? 'Uploading securely…' : 'JPG, PNG or PDF · max 5 MB'}</div>
+      {err && <div className="alert err" style={{ marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
 function FieldInput({ field, value, onChange }) {
   const opts = JSON.parse(field.options || '[]').filter(Boolean);
   const common = { id: `f${field.id}` };
   switch (field.fieldType) {
+    case 'file':
+      return <FileUpload field={field} value={value} onChange={onChange} />;
     case 'textarea':
       return <textarea {...common} rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
     case 'select':

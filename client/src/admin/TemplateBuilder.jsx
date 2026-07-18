@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { adminApi, errMsg } from '../lib/api.js';
 
-const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'email', 'phone', 'select', 'radio', 'checkbox'];
+const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'email', 'phone', 'select', 'radio', 'checkbox', 'file'];
 
 const emptyField = () => ({ label: '', fieldType: 'text', options: [], required: false, studentField: '', validation: {} });
 const emptySection = (title = '') => ({ title, fields: [emptyField()] });

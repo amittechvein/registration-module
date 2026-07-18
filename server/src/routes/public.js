@@ -1,8 +1,11 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const multer = require('multer');
 const {
   sequelize, AcademicSession, ClassRoom,
   FormTemplate, FormSection, FormField, FormActivation, FormStatus,
-  Applicant, Submission, Payment, Communication, StatusLog,
+  Applicant, Attachment, Submission, Payment, Communication, StatusLog,
 } = require('../models');
 const { sign, applicantAuth } = require('../middleware/auth');
 const { validateSubmission } = require('../services/validate');
@@ -50,11 +53,12 @@ router.get('/forms/:slug', async (req, res) => {
 router.post('/auth/request-otp', async (req, res) => {
   const { phone } = req.body;
   if (!/^[6-9]\d{9}$/.test(phone || '')) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
-  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  // Cryptographically secure OTP, stored only as a bcrypt hash
+  const otp = String(crypto.randomInt(100000, 1000000));
   const [applicant] = await Applicant.findOrCreate({ where: { phone }, defaults: { phone } });
-  await applicant.update({ otp, otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+  await applicant.update({ otp: bcrypt.hashSync(otp, 8), otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0 });
   const { sendSms } = require('../services/notify');
-  await sendSms(phone, `Your admission portal OTP is ${otp}. Valid for 10 minutes.`);
+  await sendSms(phone, `Your admission portal OTP is ${otp}. Valid for 10 minutes. Do not share it with anyone.`);
   const devShow = String(process.env.DEV_SHOW_OTP || 'true') === 'true';
   res.json({ ok: true, ...(devShow ? { devOtp: otp } : {}) });
 });
@@ -62,10 +66,17 @@ router.post('/auth/request-otp', async (req, res) => {
 router.post('/auth/verify-otp', async (req, res) => {
   const { phone, otp, name, email } = req.body;
   const applicant = await Applicant.findOne({ where: { phone } });
-  if (!applicant || applicant.otp !== otp || new Date() > new Date(applicant.otpExpiresAt)) {
+  if (!applicant || !applicant.otp || new Date() > new Date(applicant.otpExpiresAt)) {
     return res.status(401).json({ error: 'Invalid or expired OTP' });
   }
-  await applicant.update({ otp: null, ...(name ? { name } : {}), ...(email ? { email } : {}) });
+  if (applicant.otpAttempts >= 5) {
+    return res.status(429).json({ error: 'Too many wrong attempts. Request a new OTP.' });
+  }
+  if (!bcrypt.compareSync(String(otp || ''), applicant.otp)) {
+    await applicant.update({ otpAttempts: applicant.otpAttempts + 1 });
+    return res.status(401).json({ error: 'Invalid or expired OTP' });
+  }
+  await applicant.update({ otp: null, otpAttempts: 0, ...(name ? { name: String(name).slice(0, 100) } : {}), ...(email ? { email: String(email).slice(0, 150) } : {}) });
   res.json({ token: sign({ role: 'applicant', id: applicant.id, phone }), applicant: { id: applicant.id, phone, name: applicant.name, email: applicant.email } });
 });
 
@@ -81,7 +92,54 @@ router.post('/me', async (req, res) => {
   res.json(a);
 });
 
+// ---------- Secure file uploads (attachments) ----------
+const ALLOWED_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB max, per the form rules
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME[file.mimetype]) return cb(null, true);
+    cb(new Error('Only JPG, PNG, WEBP or PDF files are allowed'));
+  },
+});
+
+router.post('/uploads', (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file received' });
+    // Sanitize filename: strip paths/special chars, force a safe extension from the real mimetype
+    const base = (req.file.originalname || 'document').replace(/\.[^.]*$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 80) || 'document';
+    const att = await Attachment.create({
+      applicantId: req.applicant.id,
+      filename: base + ALLOWED_MIME[req.file.mimetype],
+      mimetype: req.file.mimetype,
+      sizeBytes: req.file.size,
+      sha256: require('crypto').createHash('sha256').update(req.file.buffer).digest('hex'),
+      data: req.file.buffer,
+    });
+    res.json({ id: att.id, filename: att.filename, sizeBytes: att.sizeBytes });
+  });
+});
+
+// Applicant can view their own uploaded file (ownership enforced)
+router.get('/uploads/:id', async (req, res) => {
+  const att = await Attachment.findOne({ where: { id: req.params.id, applicantId: req.applicant.id } });
+  if (!att) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Content-Type', att.mimetype);
+  res.setHeader('Content-Disposition', `attachment; filename="${att.filename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(att.data);
+});
+
 // ---------- Draft (save half-filled, edit before submission) ----------
+// Link any uploaded attachments referenced in the form data to this submission
+async function linkAttachments(sub, data, applicantId) {
+  const ids = Object.values(data || {})
+    .filter((v) => v && typeof v === 'object' && v.attachmentId)
+    .map((v) => v.attachmentId);
+  if (ids.length) await Attachment.update({ submissionId: sub.id }, { where: { id: ids, applicantId } });
+}
+
 router.post('/forms/:slug/draft', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });
   if (!a || !isOpen(a)) return res.status(403).json({ error: 'Form closed' });
@@ -89,6 +147,7 @@ router.post('/forms/:slug/draft', async (req, res) => {
   if (sub && !sub.isDraft) return res.status(400).json({ error: 'Form already submitted' });
   if (sub) await sub.update({ data: JSON.stringify(req.body.data || {}) });
   else sub = await Submission.create({ activationId: a.id, applicantId: req.applicant.id, data: JSON.stringify(req.body.data || {}), isDraft: true });
+  await linkAttachments(sub, req.body.data, req.applicant.id);
   res.json({ ok: true, id: sub.id });
 });
 
@@ -135,6 +194,7 @@ router.post('/forms/:slug/submit', async (req, res) => {
 
   if (sub) await sub.update({ data: JSON.stringify(data) });
   else sub = await Submission.create({ activationId: a.id, applicantId: req.applicant.id, data: JSON.stringify(data), isDraft: true });
+  await linkAttachments(sub, data, req.applicant.id);
 
   const price = Number(a.price || 0);
   if (price > 0 && a.onlinePaymentEnabled) {

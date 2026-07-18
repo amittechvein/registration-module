@@ -78,8 +78,20 @@ const Applicant = sequelize.define('Applicant', {
   phone: { type: DataTypes.STRING, unique: true, allowNull: false },
   name: DataTypes.STRING,
   email: DataTypes.STRING,
-  otp: DataTypes.STRING,
+  otp: DataTypes.STRING, // bcrypt hash of the OTP — never stored in plain text
   otpExpiresAt: DataTypes.DATE,
+  otpAttempts: { type: DataTypes.INTEGER, defaultValue: 0 },
+});
+
+// Uploaded documents (birth certificate, address proof, photos…).
+// Stored as binary inside the database → encrypted at rest, survives restarts,
+// and only downloadable through authenticated endpoints.
+const Attachment = sequelize.define('Attachment', {
+  filename: { type: DataTypes.STRING, allowNull: false },
+  mimetype: { type: DataTypes.STRING, allowNull: false },
+  sizeBytes: { type: DataTypes.INTEGER, allowNull: false },
+  sha256: DataTypes.STRING,
+  data: { type: DataTypes.BLOB('long'), allowNull: false },
 });
 
 const Submission = sequelize.define('Submission', {
@@ -181,6 +193,10 @@ Submission.hasMany(Communication, { as: 'communications', foreignKey: 'submissio
 Communication.belongsTo(Submission, { foreignKey: 'submissionId' });
 Submission.hasMany(StatusLog, { as: 'statusLogs', foreignKey: 'submissionId', onDelete: 'CASCADE' });
 StatusLog.belongsTo(Submission, { foreignKey: 'submissionId' });
+Attachment.belongsTo(Applicant, { as: 'applicant', foreignKey: 'applicantId' });
+Attachment.belongsTo(Submission, { as: 'submission', foreignKey: 'submissionId' });
+Submission.hasMany(Attachment, { as: 'attachments', foreignKey: 'submissionId' });
+
 Student.belongsTo(Submission, { as: 'sourceSubmission', foreignKey: 'submissionId' });
 Student.belongsTo(ClassRoom, { as: 'classRoom', foreignKey: 'classId' });
 Student.belongsTo(AcademicSession, { as: 'session', foreignKey: 'sessionId' });
@@ -196,6 +212,7 @@ module.exports = {
   FormActivation,
   FormStatus,
   Applicant,
+  Attachment,
   Submission,
   Payment,
   Communication,

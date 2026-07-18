@@ -4,8 +4,9 @@ const { Op } = require('sequelize');
 const {
   sequelize, AdminUser, AcademicSession, ClassRoom,
   FormTemplate, FormSection, FormField, FormActivation, FormStatus,
-  Applicant, Submission, Payment, Communication, StatusLog, Student, STUDENT_FIELDS,
+  Applicant, Attachment, Submission, Payment, Communication, StatusLog, Student, STUDENT_FIELDS,
 } = require('../models');
+const sanitizeHtml = require('sanitize-html');
 const { sign, adminAuth } = require('../middleware/auth');
 const { notifyStatusChange } = require('../services/notify');
 const { allotStudent } = require('../services/allotment');
@@ -143,6 +144,12 @@ router.post('/activations', async (req, res) => {
   if (statuses.length && firstCount !== 1) {
     return res.status(400).json({ error: 'Exactly one status must be marked as the First Status of the form' });
   }
+  // Prevent stored XSS: instructions HTML is sanitized server-side
+  body.instructionsHtml = sanitizeHtml(body.instructionsHtml || '', {
+    allowedTags: ['h1', 'h2', 'h3', 'h4', 'p', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li', 'br', 'a', 'span', 'div', 'hr', 'table', 'tr', 'td', 'th', 'thead', 'tbody'],
+    allowedAttributes: { a: ['href', 'target'], '*': ['style'] },
+    allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+  });
   const tx = await sequelize.transaction();
   try {
     let act;
@@ -299,6 +306,16 @@ router.post('/submissions/:id/communications', async (req, res) => {
   res.json(comm);
 });
 
+// ---------- Attachments (secure download, admin only) ----------
+router.get('/attachments/:id', async (req, res) => {
+  const att = await Attachment.findByPk(req.params.id);
+  if (!att) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Content-Type', att.mimetype);
+  res.setHeader('Content-Disposition', `attachment; filename="${att.filename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(att.data);
+});
+
 // ---------- Exports ----------
 router.get('/export/excel', async (req, res) => {
   const rows = await findSubmissions(req.query);
@@ -333,7 +350,10 @@ router.get('/export/excel', async (req, res) => {
       payment: r.paymentStatus, amount: Number(r.amount || 0),
       submittedAt: r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-IN') : '',
     };
-    for (const c of fieldCols) row['f' + c.id] = Array.isArray(data[c.id]) ? data[c.id].join(', ') : data[c.id] ?? '';
+    for (const c of fieldCols) {
+      const v = data[c.id];
+      row['f' + c.id] = Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? (v.filename || '[file]') : v ?? '';
+    }
     ws.addRow(row);
   }
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -358,9 +378,10 @@ function drawSubmissionPdf(doc, s) {
     doc.fillColor('black').fontSize(10).font('Helvetica');
     for (const f of sec.fields || []) {
       const v = data[f.id];
-      doc.text(`${f.label}: `, { continued: true }).font('Helvetica-Bold')
-        .text(Array.isArray(v) ? v.join(', ') : v != null && v !== '' ? String(v) : '—')
-        .font('Helvetica');
+      const display = Array.isArray(v) ? v.join(', ')
+        : v && typeof v === 'object' ? `📎 ${v.filename || 'file uploaded'}`
+        : v != null && v !== '' ? String(v) : '—';
+      doc.text(`${f.label}: `, { continued: true }).font('Helvetica-Bold').text(display).font('Helvetica');
     }
   }
 }
