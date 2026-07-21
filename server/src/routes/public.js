@@ -265,6 +265,43 @@ router.get('/my-submissions', async (req, res) => {
   })));
 });
 
+// ---------- Applicant downloads: form PDF & payment receipt ----------
+const { drawSubmissionPdf, drawReceiptPdf } = require('../services/pdf');
+const myPdfInclude = [
+  { model: FormActivation, as: 'activation', include: [
+    { model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' },
+    { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] },
+  ]},
+  { model: Applicant, as: 'applicant' },
+  { model: FormStatus, as: 'status' },
+  { model: Payment, as: 'payments' },
+];
+
+router.get('/my-submissions/:id/pdf', async (req, res) => {
+  const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: myPdfInclude });
+  if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });
+  const PDFDocument = require('pdfkit');
+  const doc = new PDFDocument({ margin: 40 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="application-${s.formNo || s.id}.pdf"`);
+  doc.pipe(res);
+  drawSubmissionPdf(doc, s);
+  doc.end();
+});
+
+router.get('/my-submissions/:id/receipt', async (req, res) => {
+  const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: myPdfInclude });
+  if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });
+  if (s.paymentStatus !== 'paid') return res.status(400).json({ error: 'No successful payment found for this form' });
+  const PDFDocument = require('pdfkit');
+  const doc = new PDFDocument({ margin: 40 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="receipt-${s.formNo || s.id}.pdf"`);
+  doc.pipe(res);
+  drawReceiptPdf(doc, s);
+  doc.end();
+});
+
 router.post('/my-submissions/:id/communications', async (req, res) => {
   const sub = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id } });
   if (!sub) return res.status(404).json({ error: 'Not found' });

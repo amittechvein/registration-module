@@ -89,6 +89,126 @@ function FieldInput({ field, value, onChange }) {
   }
 }
 
+/** Section-wise step wizard: one section per step, then Review & Submit. */
+function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
+  const sections = [...form.template.sections].sort((a, b) => a.sortOrder - b.sortOrder);
+  const steps = [...sections.map((s) => s.title), 'Review & Submit'];
+  const [step, setStep] = useState(0);
+  const [stepErrs, setStepErrs] = useState([]);
+  const isReview = step === steps.length - 1;
+  const current = sections[step];
+
+  const missingIn = (sec) =>
+    sec.fields.filter((fld) => {
+      if (!fld.required) return false;
+      const v = data[fld.id];
+      if (fld.fieldType === 'file') return !(v && typeof v === 'object' && v.attachmentId);
+      return v == null || v === '' || (Array.isArray(v) && !v.length);
+    });
+
+  const next = () => {
+    const missing = missingIn(current);
+    if (missing.length) {
+      setStepErrs(missing.map((m) => `${m.label} is required`));
+      return;
+    }
+    setStepErrs([]);
+    setStep((s) => Math.min(s + 1, steps.length - 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const back = () => { setStepErrs([]); setStep((s) => Math.max(s - 1, 0)); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const jump = (i) => { if (i <= step) { setStepErrs([]); setStep(i); } };
+
+  const displayValue = (fld) => {
+    const v = data[fld.id];
+    if (v == null || v === '') return '—';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') return v.attachmentId ? `📎 ${v.filename}` : '—';
+    return String(v);
+  };
+
+  return (
+    <>
+      {hadDraft && step === 0 && <div className="alert ok">Your saved draft was loaded — continue where you left off. The form auto-saves at every step.</div>}
+
+      <div className="steps">
+        {steps.map((title, i) => (
+          <div key={i} className={`step ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}`} onClick={() => jump(i)}>
+            <div className="dot">{i < step ? '✓' : i + 1}</div>
+            <div className="lbl">{title}</div>
+          </div>
+        ))}
+      </div>
+
+      {!isReview && (
+        <div className="card">
+          <div className="section-title">Step {step + 1} of {steps.length}: {current.title}</div>
+          {[...current.fields].sort((a, b) => a.sortOrder - b.sortOrder).map((fld) => (
+            <label className="fld" key={fld.id} htmlFor={`f${fld.id}`}>
+              {fld.label} {fld.required && <span className="req">*</span>}
+              <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} />
+            </label>
+          ))}
+        </div>
+      )}
+
+      {isReview && (
+        <div className="card">
+          <div className="section-title">Review your application before submitting</div>
+          {sections.map((sec) => (
+            <div key={sec.id} style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <b style={{ color: '#1d4ed8' }}>{sec.title}</b>
+                <button className="btn small ghost" onClick={() => jump(sections.indexOf(sec))}>Edit</button>
+              </div>
+              {sec.fields.map((fld) => (
+                <div className="review-item" key={fld.id}>
+                  <div className="k">{fld.label}</div>
+                  <div className="v">{displayValue(fld)}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {stepErrs.length > 0 && (
+        <div className="alert err">
+          <b>Please complete this step:</b>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{stepErrs.map((x, i) => <li key={i}>{x}</li>)}</ul>
+        </div>
+      )}
+      {errs.length > 0 && (
+        <div className="alert err">
+          <b>Please fix the following:</b>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{errs.map((x, i) => <li key={i}>{x}</li>)}</ul>
+        </div>
+      )}
+      {err && <div className="alert err">{err}</div>}
+
+      <div className="card wizard-nav">
+        <button className="btn ghost" onClick={back} disabled={step === 0}>← Back</button>
+        <div className="muted" style={{ textAlign: 'center' }}>
+          {isReview
+            ? Number(form.price) > 0
+              ? form.onlinePaymentEnabled
+                ? <>Pay <b>₹{Number(form.price).toFixed(0)}</b> {form.mockPayment ? '(dev: mock payment)' : 'securely via Razorpay'} to complete submission.</>
+                : <>Form fee ₹{Number(form.price).toFixed(0)} — payable at the school office.</>
+              : 'This form is free.'
+            : `Step ${step + 1} of ${steps.length}`}
+        </div>
+        {isReview ? (
+          <button className="btn green" onClick={submit} disabled={busy}>
+            {busy ? 'Submitting…' : Number(form.price) > 0 && form.onlinePaymentEnabled ? 'Pay & Submit' : 'Submit Form'}
+          </button>
+        ) : (
+          <button className="btn" onClick={next}>Save & Continue →</button>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function FormPage() {
   const { slug } = useParams();
   const [form, setForm] = useState(null);
@@ -218,39 +338,16 @@ export default function FormPage() {
       )}
 
       {loggedIn && !formNo && !alreadySubmitted && (
-        <>
-          {draftInfo?.isDraft && <div className="alert ok">Your saved draft was loaded — you can continue where you left off. The form auto-saves as you type.</div>}
-          {form.template.sections.sort((a, b) => a.sortOrder - b.sortOrder).map((sec) => (
-            <div className="card" key={sec.id}>
-              <div className="section-title">{sec.title}</div>
-              {sec.fields.sort((a, b) => a.sortOrder - b.sortOrder).map((fld) => (
-                <label className="fld" key={fld.id} htmlFor={`f${fld.id}`}>
-                  {fld.label} {fld.required && <span className="req">*</span>}
-                  <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} />
-                </label>
-              ))}
-            </div>
-          ))}
-          {errs.length > 0 && (
-            <div className="alert err">
-              <b>Please fix the following:</b>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{errs.map((x, i) => <li key={i}>{x}</li>)}</ul>
-            </div>
-          )}
-          {err && <div className="alert err">{err}</div>}
-          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="muted">
-              {Number(form.price) > 0
-                ? form.onlinePaymentEnabled
-                  ? <>You will be asked to pay <b>₹{Number(form.price).toFixed(0)}</b> {form.mockPayment ? '(dev: mock payment)' : 'via Razorpay'} to complete submission.</>
-                  : <>Form fee ₹{Number(form.price).toFixed(0)} — payable offline at the school office.</>
-                : 'This form is free.'}
-            </div>
-            <button className="btn green" onClick={submit} disabled={busy}>
-              {busy ? 'Submitting…' : Number(form.price) > 0 && form.onlinePaymentEnabled ? 'Pay & Submit' : 'Submit Form'}
-            </button>
-          </div>
-        </>
+        <Wizard
+          form={form}
+          data={data}
+          setField={setField}
+          errs={errs}
+          err={err}
+          busy={busy}
+          submit={submit}
+          hadDraft={!!draftInfo?.isDraft}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { publicApi, errMsg } from '../lib/api.js';
+import { publicApi, errMsg, downloadBlob } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
 
 export default function TrackPage() {
@@ -52,6 +52,16 @@ export default function TrackPage() {
 
               {!s.isDraft && (
                 <>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                    <button className="btn ghost" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/pdf`, `application-${s.formNo}.pdf`, 'applicantToken')}>
+                      ⬇ Download Form (PDF)
+                    </button>
+                    {s.paymentStatus === 'paid' && (
+                      <button className="btn ghost" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/receipt`, `receipt-${s.formNo}.pdf`, 'applicantToken')}>
+                        🧾 Payment Receipt
+                      </button>
+                    )}
+                  </div>
                   <div className="section-title">Status history</div>
                   {(s.statusLogs || []).map((l) => (
                     <div key={l.id} className="muted" style={{ fontSize: 13, marginBottom: 3 }}>

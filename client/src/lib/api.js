@@ -26,8 +26,8 @@ publicApi.interceptors.request.use((cfg) => {
 export const errMsg = (e) =>
   e.response?.data?.error || (e.response?.data?.errors || []).join('; ') || e.message || 'Something went wrong';
 
-export async function downloadBlob(url, filename) {
-  const t = sessionStorage.getItem('adminToken');
+export async function downloadBlob(url, filename, tokenKey = 'adminToken') {
+  const t = sessionStorage.getItem(tokenKey);
   const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
   if (!res.ok) throw new Error('Download failed');
   const blob = await res.blob();

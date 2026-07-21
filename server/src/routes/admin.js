@@ -362,34 +362,13 @@ router.get('/export/excel', async (req, res) => {
   res.end();
 });
 
-function drawSubmissionPdf(doc, s) {
-  const data = JSON.parse(s.data || '{}');
-  doc.fontSize(16).font('Helvetica-Bold').text(s.activation?.title || 'Registration Form');
-  doc.moveDown(0.2);
-  doc.fontSize(10).font('Helvetica')
-    .text(`Form No: ${s.formNo || '-'}    Session: ${s.activation?.session?.name || '-'}    Class: ${s.activation?.classRoom?.name || '-'}`)
-    .text(`Applicant: ${s.applicant?.name || '-'} (${s.applicant?.phone || '-'})    Status: ${s.status?.name || '-'}    Payment: ${s.paymentStatus} ₹${s.amount}`)
-    .text(`Submitted: ${s.submittedAt ? new Date(s.submittedAt).toLocaleString('en-IN') : '-'}`);
-  doc.moveTo(doc.x, doc.y + 6).lineTo(555, doc.y + 6).strokeColor('#999').stroke();
-  doc.moveDown();
-  const sections = s.activation?.template?.sections || [];
-  for (const sec of sections) {
-    doc.moveDown(0.5).fontSize(12).font('Helvetica-Bold').fillColor('#1d4ed8').text(sec.title);
-    doc.fillColor('black').fontSize(10).font('Helvetica');
-    for (const f of sec.fields || []) {
-      const v = data[f.id];
-      const display = Array.isArray(v) ? v.join(', ')
-        : v && typeof v === 'object' ? `📎 ${v.filename || 'file uploaded'}`
-        : v != null && v !== '' ? String(v) : '—';
-      doc.text(`${f.label}: `, { continued: true }).font('Helvetica-Bold').text(display).font('Helvetica');
-    }
-  }
-}
+const { drawSubmissionPdf } = require('../services/pdf');
 
 const submissionPdfInclude = [
   { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] }] },
   { model: Applicant, as: 'applicant' },
   { model: FormStatus, as: 'status' },
+  { model: Payment, as: 'payments' },
 ];
 
 router.get('/submissions/:id/pdf', async (req, res) => {

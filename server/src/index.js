@@ -62,7 +62,11 @@ app.use((err, _req, res, _next) => {
 
 const PORT = process.env.PORT || 5000;
 (async () => {
-  await sequelize.sync({ alter: true });
+  // alter:true safely adds new columns on Postgres/MySQL migrations.
+  // On SQLite it rebuilds tables (can drop FK data), so plain sync there —
+  // for local dev, delete registration.sqlite to pick up schema changes.
+  const canAlter = ['postgres', 'mysql'].includes(sequelize.getDialect());
+  await sequelize.sync(canAlter ? { alter: true } : {});
   await ensureSeed();
   app.listen(PORT, () => console.log(`Registration server running on http://localhost:${PORT}`));
 })();
