@@ -3,9 +3,29 @@ import { useParams, Link } from 'react-router-dom';
 import { publicApi, errMsg } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
 
+const isImageName = (n) => /\.(jpe?g|png|webp)$/i.test(n || '');
+
 function FileUpload({ field, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [preview, setPreview] = useState(null);
+
+  // Restore image preview when a saved draft is reloaded
+  useEffect(() => {
+    let url;
+    if (value?.attachmentId && isImageName(value.filename)) {
+      fetch(`/api/public/uploads/${value.attachmentId}`, {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('applicantToken')}` },
+      })
+        .then((r) => (r.ok ? r.blob() : null))
+        .then((b) => { if (b) { url = URL.createObjectURL(b); setPreview(url); } })
+        .catch(() => {});
+    } else {
+      setPreview(null);
+    }
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [value?.attachmentId]); // eslint-disable-line
+
   const pick = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -17,17 +37,21 @@ function FileUpload({ field, value, onChange }) {
       fd.append('file', file);
       const { data } = await publicApi.post('/uploads', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       onChange({ attachmentId: data.id, filename: data.filename, sizeBytes: data.sizeBytes });
+      if (file.type.startsWith('image/')) setPreview(URL.createObjectURL(file));
     } catch (e2) { setErr(errMsg(e2)); }
     setBusy(false);
   };
   return (
     <div>
       {value?.attachmentId ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5 }}>
-          <span className="pill on">📎 {value.filename}</span>
-          <label className="btn small ghost" style={{ cursor: 'pointer' }}>
-            Replace<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" hidden onChange={pick} />
-          </label>
+        <div style={{ marginTop: 5 }}>
+          {preview && <img className="upload-preview" src={preview} alt={field.label} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
+            <span className="pill on">📎 {value.filename}</span>
+            <label className="btn small ghost" style={{ cursor: 'pointer' }}>
+              Replace<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" hidden onChange={pick} />
+            </label>
+          </div>
         </div>
       ) : (
         <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" onChange={pick} disabled={busy} style={{ marginTop: 5 }} />
@@ -143,12 +167,20 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
       {!isReview && (
         <div className="card">
           <div className="section-title">Step {step + 1} of {steps.length}: {current.title}</div>
-          {[...current.fields].sort((a, b) => a.sortOrder - b.sortOrder).map((fld) => (
-            <label className="fld" key={fld.id} htmlFor={`f${fld.id}`}>
-              {fld.label} {fld.required && <span className="req">*</span>}
-              <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} />
-            </label>
-          ))}
+          <div className="fields-grid">
+            {[...current.fields].sort((a, b) => a.sortOrder - b.sortOrder).map((fld) => {
+              let opts = []; try { opts = JSON.parse(fld.options || '[]'); } catch {}
+              const wide = ['textarea', 'checkbox'].includes(fld.fieldType)
+                || fld.label.length > 58
+                || (fld.fieldType === 'radio' && opts.join('').length > 24);
+              return (
+                <label className={`fld ${wide ? 'span-all' : ''}`} key={fld.id} htmlFor={`f${fld.id}`}>
+                  {fld.label} {fld.required && <span className="req">*</span>}
+                  <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} />
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
 

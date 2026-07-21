@@ -275,13 +275,14 @@ const myPdfInclude = [
   { model: Applicant, as: 'applicant' },
   { model: FormStatus, as: 'status' },
   { model: Payment, as: 'payments' },
+  { model: Attachment, as: 'attachments' },
 ];
 
 router.get('/my-submissions/:id/pdf', async (req, res) => {
   const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: myPdfInclude });
   if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });
   const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="application-${s.formNo || s.id}.pdf"`);
   doc.pipe(res);
@@ -294,7 +295,7 @@ router.get('/my-submissions/:id/receipt', async (req, res) => {
   if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });
   if (s.paymentStatus !== 'paid') return res.status(400).json({ error: 'No successful payment found for this form' });
   const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="receipt-${s.formNo || s.id}.pdf"`);
   doc.pipe(res);

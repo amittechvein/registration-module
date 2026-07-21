@@ -19,7 +19,7 @@ export default function ActivationForm() {
     title: '', templateId: '', sessionId: '', classId: '', price: 0,
     onlinePaymentEnabled: true, dobValidationEnabled: false, dobMin: '', dobMax: '',
     formNoPrefix: 'REG-', formNoSuffix: '', formNoPad: 4,
-    instructionsHtml: '', startDate: '', endDate: '', active: false,
+    instructionsHtml: '', startDate: '', endDate: '', active: false, pdfTemplate: 'modern',
   });
   const [statuses, setStatuses] = useState(defaultStatuses);
   const [slug, setSlug] = useState('');
@@ -37,7 +37,7 @@ export default function ActivationForm() {
           dobValidationEnabled: a.dobValidationEnabled, dobMin: a.dobMin || '', dobMax: a.dobMax || '',
           formNoPrefix: a.formNoPrefix || '', formNoSuffix: a.formNoSuffix || '', formNoPad: a.formNoPad || 4,
           instructionsHtml: a.instructionsHtml || '', startDate: a.startDate || '', endDate: a.endDate || '',
-          active: a.active,
+          active: a.active, pdfTemplate: a.pdfTemplate || 'modern',
         });
         setSlug(a.slug);
         setStatuses(a.statuses.sort((x, y) => x.sortOrder - y.sortOrder));
@@ -161,6 +161,20 @@ export default function ActivationForm() {
           </label>
         </div>
         <div className="muted">Example: {form.formNoPrefix}{String(1).padStart(form.formNoPad || 4, '0')}{form.formNoSuffix}</div>
+      </div>
+
+      <div className="card">
+        <h3>PDF Design</h3>
+        <div className="muted" style={{ marginBottom: 6 }}>Layout used for the downloadable form PDF (admin & applicant)</div>
+        <label className="fld" style={{ maxWidth: 420 }}>Template
+          <select value={form.pdfTemplate} onChange={(e) => up({ pdfTemplate: e.target.value })}>
+            <option value="modern">Modern — two-column with navy section bands (single page)</option>
+            <option value="classic">Classic — bordered table cells with grey labels (like printed registers)</option>
+            <option value="elegant">Elegant — serif fonts, maroon & gold, formal certificate feel</option>
+            <option value="card">Card — soft blue section cards with striped rows</option>
+            <option value="mono">Mono — pure black & white, best for photocopying</option>
+          </select>
+        </label>
       </div>
 
       <div className="card">

@@ -57,6 +57,7 @@ const FormActivation = sequelize.define('FormActivation', {
   startDate: { type: DataTypes.DATEONLY, allowNull: true },
   endDate: { type: DataTypes.DATEONLY, allowNull: true },
   active: { type: DataTypes.BOOLEAN, defaultValue: false },
+  pdfTemplate: { type: DataTypes.STRING, defaultValue: 'modern' }, // modern | classic
 });
 
 // Statuses configured per activation (table form)

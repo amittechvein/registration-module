@@ -60,6 +60,8 @@ const SECTIONS = [
     f('If the mother of the Girl was a Student of this School', 'radio', { options: ['YES', 'NO'] }),
   ]},
   { title: 'Attachments', fields: [
+    f('Student Photo (Passport Size)', 'file', { required: true }),
+    f('Signature of Parent/Guardian', 'file', { required: true }),
     f('Birth Certificate', 'file', { required: true }),
     f('Address proof of the parents (Aadhar Card / Electricity Bill / Gas Connection)', 'file', { required: true }),
     f('Recent Photograph of Parents with the Child', 'file', { required: true }),
@@ -83,6 +85,19 @@ const STATUSES = [
   { name: 'Rejected', color: '#dc2626', sortOrder: 4 },
 ];
 
+/** Migration: add photo & signature fields to an already-created template. */
+async function ensurePhotoSignatureFields(template) {
+  const sections = await FormSection.findAll({ where: { templateId: template.id }, include: [{ model: FormField, as: 'fields' }] });
+  const allLabels = sections.flatMap((s) => s.fields.map((fl) => fl.label.toLowerCase()));
+  if (allLabels.some((l) => l.includes('student photo'))) return;
+  const attSection = sections.find((s) => s.title === 'Attachments') || sections[sections.length - 1];
+  if (!attSection) return;
+  const maxOrder = Math.max(-1, ...attSection.fields.map((fl) => fl.sortOrder));
+  await FormField.create({ sectionId: attSection.id, label: 'Student Photo (Passport Size)', fieldType: 'file', required: true, options: '[]', validation: '{}', sortOrder: maxOrder + 1 });
+  await FormField.create({ sectionId: attSection.id, label: 'Signature of Parent/Guardian', fieldType: 'file', required: true, options: '[]', validation: '{}', sortOrder: maxOrder + 2 });
+  console.log('Added Student Photo & Signature fields to template:', template.name);
+}
+
 async function ensurePrebuiltForms() {
   const TEMPLATE_NAME = 'Nursery Application Form (2026-27)';
   let template = await FormTemplate.findOne({ where: { name: TEMPLATE_NAME } });
@@ -101,6 +116,8 @@ async function ensurePrebuiltForms() {
       }
     }
     console.log('Pre-built template created: ' + TEMPLATE_NAME);
+  } else {
+    await ensurePhotoSignatureFields(template);
   }
 
   const ACT_TITLE = 'Nursery Registration 2026-27';

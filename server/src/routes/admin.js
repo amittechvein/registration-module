@@ -369,13 +369,14 @@ const submissionPdfInclude = [
   { model: Applicant, as: 'applicant' },
   { model: FormStatus, as: 'status' },
   { model: Payment, as: 'payments' },
+  { model: Attachment, as: 'attachments' },
 ];
 
 router.get('/submissions/:id/pdf', async (req, res) => {
   const s = await Submission.findByPk(req.params.id, { include: submissionPdfInclude });
   if (!s) return res.status(404).json({ error: 'Not found' });
   const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="form-${s.formNo || s.id}.pdf"`);
   doc.pipe(res);
@@ -388,7 +389,7 @@ router.get('/export/pdf', async (req, res) => {
   const full = await Submission.findAll({ where: { id: rows.map((r) => r.id).length ? rows.map((r) => r.id) : [0] }, include: submissionPdfInclude });
   const byId = new Map(full.map((f) => [f.id, f]));
   const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="all-submissions.pdf"');
   doc.pipe(res);
