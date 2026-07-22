@@ -189,6 +189,16 @@ router.post('/activations', async (req, res) => {
   }
 });
 
+// Quick switch of the PDF download template from the list page
+router.post('/activations/:id/pdf-template', async (req, res) => {
+  const VALID = ['modern', 'classic', 'elegant', 'card', 'mono'];
+  if (!VALID.includes(req.body.pdfTemplate)) return res.status(400).json({ error: 'Invalid template' });
+  const a = await FormActivation.findByPk(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found' });
+  await a.update({ pdfTemplate: req.body.pdfTemplate });
+  res.json({ ok: true, pdfTemplate: a.pdfTemplate });
+});
+
 router.post('/activations/:id/toggle', async (req, res) => {
   const a = await FormActivation.findByPk(req.params.id, { include: [{ model: FormStatus, as: 'statuses' }] });
   if (!a) return res.status(404).json({ error: 'Not found' });

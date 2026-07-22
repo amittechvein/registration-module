@@ -14,6 +14,11 @@ export default function Activations() {
     catch (e) { setErr(errMsg(e)); }
   };
 
+  const setPdfTemplate = async (id, pdfTemplate) => {
+    try { await adminApi.post(`/activations/${id}/pdf-template`, { pdfTemplate }); load(); }
+    catch (e) { setErr(errMsg(e)); }
+  };
+
   return (
     <div>
       <div className="topbar">
@@ -26,7 +31,7 @@ export default function Activations() {
       {err && <div className="alert err">{err}</div>}
       <div className="card">
         <table className="tbl">
-          <thead><tr><th>Title</th><th>Session</th><th>Class</th><th>Template</th><th>Price</th><th>Public URL</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Title</th><th>Session</th><th>Class</th><th>Template</th><th>Price</th><th>Public URL</th><th>PDF Design</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {list.map((a) => (
               <tr key={a.id}>
@@ -36,6 +41,15 @@ export default function Activations() {
                 <td>{a.template?.name}</td>
                 <td>₹{Number(a.price).toFixed(0)} {a.onlinePaymentEnabled ? '' : '(offline)'}</td>
                 <td><code className="url">/form/{a.slug}</code></td>
+                <td>
+                  <select value={a.pdfTemplate || 'modern'} onChange={(e) => setPdfTemplate(a.id, e.target.value)} style={{ width: 110, padding: '5px 7px', marginTop: 0 }}>
+                    <option value="modern">Modern</option>
+                    <option value="classic">Classic</option>
+                    <option value="elegant">Elegant</option>
+                    <option value="card">Card</option>
+                    <option value="mono">Mono</option>
+                  </select>
+                </td>
                 <td><span className={`pill ${a.active ? 'on' : 'off'}`}>{a.active ? 'Active' : 'Inactive'}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <Link className="btn small ghost" to={`/admin/activations/${a.id}`}>Edit</Link>{' '}

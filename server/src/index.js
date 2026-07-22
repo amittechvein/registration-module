@@ -22,11 +22,12 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5000',
   ...(process.env.EXTRA_CORS_ORIGINS ? process.env.EXTRA_CORS_ORIGINS.split(',') : []),
 ];
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error('Not allowed by CORS'));
-  },
+app.use(cors((req, cb) => {
+  const origin = req.headers.origin;
+  // Same-origin requests (e.g. app served by this server on a VPS/Linode) are always fine
+  const sameHost = origin && req.headers.host && origin.replace(/^https?:\/\//, '') === req.headers.host;
+  const allowed = !origin || sameHost || ALLOWED_ORIGINS.includes(origin);
+  cb(null, { origin: allowed }); // cross-origin callers outside the list get no CORS headers → blocked by the browser
 }));
 
 // Rate limits: strict on auth endpoints (brute-force protection), generous elsewhere
