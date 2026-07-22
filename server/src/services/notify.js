@@ -1,25 +1,23 @@
 const nodemailer = require('nodemailer');
 const { Communication } = require('../models');
+const { getConfig } = require('./settings');
 
 function renderTemplate(tpl, vars) {
   return (tpl || '').replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
 }
 
-let transporter = null;
-if (process.env.SMTP_HOST) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  });
-}
-
 async function sendEmail(to, subject, body) {
   if (!to) return false;
-  if (transporter) {
+  const cfg = await getConfig();
+  if (cfg.SMTP_HOST) {
     try {
-      await transporter.sendMail({ from: process.env.SMTP_FROM || 'admissions@example.com', to, subject, text: body });
+      const transporter = nodemailer.createTransport({
+        host: cfg.SMTP_HOST,
+        port: Number(cfg.SMTP_PORT || 587),
+        secure: Number(cfg.SMTP_PORT) === 465,
+        auth: cfg.SMTP_USER ? { user: cfg.SMTP_USER, pass: cfg.SMTP_PASS } : undefined,
+      });
+      await transporter.sendMail({ from: cfg.SMTP_FROM || 'admissions@example.com', to, subject, text: body });
       return true;
     } catch (e) {
       console.error('[email] send failed:', e.message);
@@ -32,17 +30,18 @@ async function sendEmail(to, subject, body) {
 
 async function sendSms(phone, message) {
   if (!phone) return false;
-  // Infobip (query API) — set INFOBIP_USERNAME / INFOBIP_PASSWORD / INFOBIP_SENDER in env
-  if (process.env.INFOBIP_USERNAME && process.env.INFOBIP_PASSWORD) {
+  const cfg = await getConfig();
+  // Infobip (query API)
+  if (cfg.INFOBIP_USERNAME && cfg.INFOBIP_PASSWORD) {
     try {
       const url =
-        (process.env.INFOBIP_BASE_URL || 'https://api.infobip.com') +
+        (cfg.INFOBIP_BASE_URL || 'https://api.infobip.com') +
         '/sms/1/text/query?' +
         new URLSearchParams({
-          username: process.env.INFOBIP_USERNAME,
-          password: process.env.INFOBIP_PASSWORD,
-          from: process.env.INFOBIP_SENDER || 'TCVEIN',
-          to: (process.env.SMS_COUNTRY_CODE || '') + phone,
+          username: cfg.INFOBIP_USERNAME,
+          password: cfg.INFOBIP_PASSWORD,
+          from: cfg.INFOBIP_SENDER || 'TCVEIN',
+          to: (cfg.SMS_COUNTRY_CODE || '') + phone,
           text: message,
         }).toString();
       const res = await fetch(url);
@@ -55,12 +54,13 @@ async function sendSms(phone, message) {
       return false;
     }
   }
-  if (process.env.MSG91_AUTH_KEY) {
+  // MSG91 (alternative)
+  if (cfg.MSG91_AUTH_KEY) {
     try {
       const res = await fetch('https://control.msg91.com/api/v5/flow/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', authkey: process.env.MSG91_AUTH_KEY },
-        body: JSON.stringify({ sender: process.env.MSG91_SENDER_ID || 'SCHOOL', mobiles: '91' + phone, message }),
+        headers: { 'Content-Type': 'application/json', authkey: cfg.MSG91_AUTH_KEY },
+        body: JSON.stringify({ sender: cfg.MSG91_SENDER_ID || 'SCHOOL', mobiles: '91' + phone, message }),
       });
       return res.ok;
     } catch (e) {
@@ -105,7 +105,6 @@ async function notifyStatusChange({ submission, applicant, status, activation, c
     );
   }
   if (status.notifyWhatsapp) {
-    // Placeholder: plug WhatsApp Business API here
     console.log(`[whatsapp:console] to=${applicant?.phone} message="${message}"`);
     jobs.push(Communication.create({ submissionId: submission.id, sender: 'system', channel: 'whatsapp', message }));
   }

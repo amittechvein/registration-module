@@ -14,6 +14,7 @@ export default function AdminLayout() {
         <NavLink to="/admin/activations">Active Forms</NavLink>
         <NavLink to="/admin/submissions">Submissions</NavLink>
         <NavLink to="/admin/students">Allotted Students</NavLink>
+        <NavLink to="/admin/settings">Settings</NavLink>
         <a
           href="#logout"
           onClick={(e) => { e.preventDefault(); sessionStorage.clear(); navigate('/admin/login'); }}

@@ -1,6 +1,12 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../db');
 
+// Key/value store for admin-configurable settings (SMS, Email, Razorpay…)
+const Setting = sequelize.define('Setting', {
+  key: { type: DataTypes.STRING, unique: true, allowNull: false },
+  value: { type: DataTypes.TEXT },
+});
+
 const AdminUser = sequelize.define('AdminUser', {
   name: DataTypes.STRING,
   email: { type: DataTypes.STRING, unique: true },
@@ -207,6 +213,7 @@ Student.belongsTo(AcademicSession, { as: 'session', foreignKey: 'sessionId' });
 
 module.exports = {
   sequelize,
+  Setting,
   AdminUser,
   AcademicSession,
   ClassRoom,

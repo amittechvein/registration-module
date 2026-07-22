@@ -1,28 +1,32 @@
 const crypto = require('crypto');
+const { getConfig } = require('./settings');
 
-const keyId = process.env.RAZORPAY_KEY_ID;
-const keySecret = process.env.RAZORPAY_KEY_SECRET;
-const MOCK = !keyId || !keySecret;
-
-let razorpay = null;
-if (!MOCK) {
-  const Razorpay = require('razorpay');
-  razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+/** Razorpay gateway resolved from admin settings (DB) with .env fallback. */
+async function getGateway() {
+  const cfg = await getConfig();
+  const keyId = cfg.RAZORPAY_KEY_ID;
+  const keySecret = cfg.RAZORPAY_KEY_SECRET;
+  const mock = !keyId || !keySecret;
+  return { keyId, keySecret, mock };
 }
 
 async function createOrder(amountRupees, receipt) {
+  const gw = await getGateway();
   const amountPaise = Math.round(Number(amountRupees) * 100);
-  if (MOCK) {
-    return { mock: true, id: 'order_mock_' + crypto.randomBytes(8).toString('hex'), amount: amountPaise, currency: 'INR' };
+  if (gw.mock) {
+    return { mock: true, id: 'order_mock_' + crypto.randomBytes(8).toString('hex'), amount: amountPaise, currency: 'INR', keyId: null };
   }
+  const Razorpay = require('razorpay');
+  const razorpay = new Razorpay({ key_id: gw.keyId, key_secret: gw.keySecret });
   const order = await razorpay.orders.create({ amount: amountPaise, currency: 'INR', receipt });
-  return { mock: false, id: order.id, amount: order.amount, currency: order.currency };
+  return { mock: false, id: order.id, amount: order.amount, currency: order.currency, keyId: gw.keyId };
 }
 
-function verifySignature({ orderId, paymentId, signature }) {
-  if (MOCK) return true; // mock mode: accept
-  const expected = crypto.createHmac('sha256', keySecret).update(`${orderId}|${paymentId}`).digest('hex');
+async function verifySignature({ orderId, paymentId, signature }) {
+  const gw = await getGateway();
+  if (gw.mock) return true; // mock mode: accept
+  const expected = crypto.createHmac('sha256', gw.keySecret).update(`${orderId}|${paymentId}`).digest('hex');
   return expected === signature;
 }
 
-module.exports = { createOrder, verifySignature, MOCK, keyId };
+module.exports = { createOrder, verifySignature, getGateway };

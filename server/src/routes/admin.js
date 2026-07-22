@@ -411,6 +411,52 @@ router.get('/export/pdf', async (req, res) => {
   doc.end();
 });
 
+// ---------- Settings (SMS / Email / Razorpay) ----------
+const settingsService = require('../services/settings');
+
+router.get('/settings', async (_req, res) => {
+  res.json(await settingsService.listForAdmin());
+});
+
+router.post('/settings', async (req, res) => {
+  await settingsService.saveFromAdmin(req.body.settings || {});
+  const { getGateway } = require('../services/payment');
+  const gw = await getGateway();
+  res.json({ ok: true, razorpayMode: gw.mock ? 'mock' : (gw.keyId || '').startsWith('rzp_live') ? 'live' : 'test' });
+});
+
+router.post('/settings/test-sms', async (req, res) => {
+  const phone = String(req.body.phone || '').replace(/\D/g, '').slice(-10);
+  if (phone.length !== 10) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+  const { sendSms } = require('../services/notify');
+  const ok = await sendSms(phone, 'Test message from your admission portal settings. If you received this, SMS is working.');
+  const cfg = await settingsService.getConfig();
+  const provider = cfg.INFOBIP_USERNAME ? 'Infobip' : cfg.MSG91_AUTH_KEY ? 'MSG91' : 'console (no provider configured)';
+  res.json({ ok, provider, note: ok ? `Sent via ${provider}` : `Failed via ${provider} — check credentials / server logs` });
+});
+
+router.post('/settings/test-email', async (req, res) => {
+  const to = String(req.body.to || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid email address' });
+  const { sendEmail } = require('../services/notify');
+  const ok = await sendEmail(to, 'Test email from admission portal', 'If you received this, email settings are working.');
+  const cfg = await settingsService.getConfig();
+  const provider = cfg.SMTP_HOST ? `SMTP (${cfg.SMTP_HOST})` : 'console (no SMTP configured)';
+  res.json({ ok, provider, note: ok ? `Sent via ${provider}` : `Failed via ${provider} — check credentials / server logs` });
+});
+
+router.get('/settings/status', async (_req, res) => {
+  const { getGateway } = require('../services/payment');
+  const gw = await getGateway();
+  const cfg = await settingsService.getConfig();
+  res.json({
+    razorpay: gw.mock ? { mode: 'mock' } : { mode: (gw.keyId || '').startsWith('rzp_live') ? 'live' : 'test', keyId: gw.keyId },
+    sms: cfg.INFOBIP_USERNAME ? 'Infobip' : cfg.MSG91_AUTH_KEY ? 'MSG91' : 'not configured (console)',
+    email: cfg.SMTP_HOST ? `SMTP: ${cfg.SMTP_HOST}` : 'not configured (console)',
+    devShowOtp: String(cfg.DEV_SHOW_OTP || 'true') === 'true',
+  });
+});
+
 // ---------- Dashboard summary ----------
 router.get('/dashboard', async (_req, res) => {
   const [totalSubmitted, totalDrafts, paid, students] = await Promise.all([

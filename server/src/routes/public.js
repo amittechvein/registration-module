@@ -41,11 +41,12 @@ router.get('/forms/:slug', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug }, include: formInclude });
   if (!a) return res.status(404).json({ error: 'Form not found' });
   if (!isOpen(a)) return res.status(403).json({ error: 'This form is currently closed', closed: true, title: a.title });
+  const gw = await payment.getGateway();
   res.json({
     slug: a.slug, title: a.title, price: Number(a.price), onlinePaymentEnabled: a.onlinePaymentEnabled,
     instructionsHtml: a.instructionsHtml, session: a.session?.name, className: a.classRoom?.name,
     dob: a.dobValidationEnabled ? { min: a.dobMin, max: a.dobMax } : null,
-    razorpayKeyId: payment.MOCK ? null : payment.keyId, mockPayment: payment.MOCK,
+    razorpayKeyId: gw.mock ? null : gw.keyId, mockPayment: gw.mock,
     template: a.template,
   });
 });
@@ -59,12 +60,13 @@ router.post('/auth/request-otp', async (req, res) => {
   const [applicant] = await Applicant.findOrCreate({ where: { phone }, defaults: { phone } });
   await applicant.update({ otp: bcrypt.hashSync(otp, 8), otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0 });
   const { sendSms } = require('../services/notify');
+  const { getConfig } = require('../services/settings');
+  const cfg = await getConfig();
   // OTP SMS text must match your DLT-registered template for delivery in India.
-  // Override with OTP_SMS_TEMPLATE env var; {{otp}} is replaced with the code.
-  const otpTemplate = process.env.OTP_SMS_TEMPLATE ||
+  const otpTemplate = cfg.OTP_SMS_TEMPLATE ||
     'The one time password for your account is {{otp}}.Please use the password to verify the account. Thanks!TECHVEIN IT SOLUTIONS PVT LTD';
   await sendSms(phone, otpTemplate.replace('{{otp}}', otp));
-  const devShow = String(process.env.DEV_SHOW_OTP || 'true') === 'true';
+  const devShow = String(cfg.DEV_SHOW_OTP || 'true') === 'true';
   res.json({ ok: true, ...(devShow ? { devOtp: otp } : {}) });
 });
 
@@ -216,7 +218,7 @@ router.post('/forms/:slug/submit', async (req, res) => {
     const order = await payment.createOrder(price, `sub_${sub.id}`);
     await Payment.create({ submissionId: sub.id, orderId: order.id, amount: price, status: 'created' });
     await sub.update({ amount: price, paymentStatus: 'pending' });
-    return res.json({ requiresPayment: true, order, keyId: payment.MOCK ? null : payment.keyId, mock: payment.MOCK, submissionId: sub.id });
+    return res.json({ requiresPayment: true, order, keyId: order.keyId, mock: order.mock, submissionId: sub.id });
   }
 
   await sub.update({ amount: price, paymentStatus: price > 0 ? 'pending' : 'na' });
@@ -233,12 +235,13 @@ router.post('/forms/:slug/payment/verify', async (req, res) => {
   const pay = await Payment.findOne({ where: { submissionId: sub.id, orderId } });
   if (!pay) return res.status(400).json({ error: 'Payment order not found' });
 
-  if (!payment.verifySignature({ orderId, paymentId, signature })) {
+  const gw = await payment.getGateway();
+  if (!(await payment.verifySignature({ orderId, paymentId, signature }))) {
     await pay.update({ status: 'failed' });
     await sub.update({ paymentStatus: 'failed' });
     return res.status(400).json({ error: 'Payment verification failed' });
   }
-  await pay.update({ status: payment.MOCK ? 'mock_paid' : 'paid', paymentId: paymentId || 'mock', signature: signature || null });
+  await pay.update({ status: gw.mock ? 'mock_paid' : 'paid', paymentId: paymentId || 'mock', signature: signature || null });
   await sub.update({ paymentStatus: 'paid' });
   if (sub.isDraft) await assignFormNoAndFirstStatus(sub, a);
   res.json({ ok: true, formNo: sub.formNo });

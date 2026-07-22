@@ -14,6 +14,8 @@ set -e
 REPO="https://github.com/amittechvein/registration-module.git"
 APP_DIR="/opt/registration"
 ENV_FILE="$APP_DIR/server/.env"
+DOMAIN="form.techvein.org"            # your domain (A record must point to this server)
+CERT_EMAIL="tech_ai@techvein.com"     # for the free HTTPS certificate
 
 echo "==> Installing system packages…"
 export DEBIAN_FRONTEND=noninteractive
@@ -84,18 +86,18 @@ systemctl daemon-reload
 systemctl enable registration
 systemctl restart registration
 
-echo "==> Configuring Nginx…"
-cat > /etc/nginx/sites-available/registration <<'EOF'
+echo "==> Configuring Nginx for $DOMAIN…"
+cat > /etc/nginx/sites-available/registration <<EOF
 server {
     listen 80 default_server;
-    server_name _;
+    server_name $DOMAIN _;
     client_max_body_size 10m;
     location / {
         proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -105,20 +107,32 @@ nginx -t && systemctl reload nginx
 
 IP=$(hostname -I | awk '{print $1}')
 sleep 3
+
+# Free HTTPS via Let's Encrypt — works once the domain's A record points here
+echo "==> Attempting HTTPS certificate for $DOMAIN…"
+DNS_IP=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)
+if [ "$DNS_IP" = "$IP" ]; then
+  apt-get install -y certbot python3-certbot-nginx
+  certbot --nginx -d "$DOMAIN" -m "$CERT_EMAIL" --agree-tos --redirect --non-interactive || \
+    echo "!! certbot failed — run manually later: certbot --nginx -d $DOMAIN"
+  SITE_URL="https://$DOMAIN"
+else
+  echo "!! $DOMAIN does not point to $IP yet (currently: ${DNS_IP:-not set})."
+  echo "   Add an A record for 'form' → $IP at your DNS provider, wait a few"
+  echo "   minutes, then re-run this script to enable HTTPS automatically."
+  SITE_URL="http://$IP"
+fi
+
 echo ""
 echo "============================================================"
 echo "  DONE! Portal is live."
-echo "  Public site : http://$IP/"
-echo "  Admin panel : http://$IP/admin  (admin@school.com / admin123)"
-echo "  Nursery form: http://$IP/form/nursery-registration-2026-27"
+echo "  Public site : $SITE_URL/"
+echo "  Admin panel : $SITE_URL/admin  (admin@school.com / admin123)"
+echo "  Nursery form: $SITE_URL/form/nursery-registration-2026-27"
 echo ""
 echo "  Next steps:"
 echo "   1. nano $ENV_FILE   → add Razorpay + Infobip keys,"
 echo "      set DEV_SHOW_OTP=false, then: systemctl restart registration"
-echo "   2. Point your domain's A record at $IP, set server_name in"
-echo "      /etc/nginx/sites-available/registration, then run:"
-echo "      apt install -y certbot python3-certbot-nginx && certbot --nginx"
-echo "      (gives you free HTTPS)"
-echo "   3. Change the admin password."
+echo "   2. Change the admin password."
 echo "  Update later: just re-run this script (git pull + rebuild + restart)."
 echo "============================================================"

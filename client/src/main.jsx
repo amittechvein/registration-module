@@ -13,6 +13,7 @@ import ActivationForm from './admin/ActivationForm.jsx';
 import Submissions from './admin/Submissions.jsx';
 import SubmissionDetail from './admin/SubmissionDetail.jsx';
 import Students from './admin/Students.jsx';
+import Settings from './admin/Settings.jsx';
 
 import Home from './public/Home.jsx';
 import FormPage from './public/FormPage.jsx';
@@ -37,6 +38,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="submissions" element={<Submissions />} />
           <Route path="submissions/:id" element={<SubmissionDetail />} />
           <Route path="students" element={<Students />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
