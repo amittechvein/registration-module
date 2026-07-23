@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
 const {
-  sequelize, AdminUser, ADMIN_PERMISSIONS, AcademicSession, ClassRoom,
+  sequelize, AdminUser, ADMIN_PERMISSIONS, AuditLog, AcademicSession, ClassRoom,
   FormTemplate, FormSection, FormField, FormActivation, FormStatus,
   Applicant, Attachment, Submission, Payment, Communication, StatusLog, Student, STUDENT_FIELDS,
 } = require('../models');
@@ -10,6 +10,7 @@ const sanitizeHtml = require('sanitize-html');
 const { sign, adminAuth, requirePerm } = require('../middleware/auth');
 const { notifyStatusChange } = require('../services/notify');
 const { allotStudent } = require('../services/allotment');
+const { audit } = require('../services/audit');
 
 const router = express.Router();
 
@@ -27,8 +28,10 @@ router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await AdminUser.findOne({ where: { email } });
   if (!user || !user.active || !bcrypt.compareSync(password || '', user.passwordHash)) {
+    await audit(req, 'login.failed', { entity: 'AdminUser', summary: `Failed login attempt for ${email || '(no email)'}`, actor: { id: null, name: email || 'unknown', type: 'admin' } });
     return res.status(401).json({ error: 'Invalid credentials' });
   }
+  await audit(req, 'login', { entity: 'AdminUser', entityId: user.id, summary: `${user.name} logged in (password)`, actor: { id: user.id, name: user.name, type: 'admin' } });
   res.json(adminToken(user));
 });
 
@@ -45,6 +48,7 @@ router.post('/auth/google', async (req, res) => {
     }
     const user = await AdminUser.findOne({ where: { email: info.email } });
     if (!user || !user.active) return res.status(403).json({ error: `No admin user exists for ${info.email}. Ask the owner to create one.` });
+    await audit(req, 'login', { entity: 'AdminUser', entityId: user.id, summary: `${user.name} logged in (Google)`, actor: { id: user.id, name: user.name, type: 'admin' } });
     res.json(adminToken(user));
   } catch (e) {
     res.status(500).json({ error: 'Google login failed: ' + e.message });
@@ -52,6 +56,64 @@ router.post('/auth/google', async (req, res) => {
 });
 
 router.use(adminAuth);
+
+// ---------- Notifications (bell in the admin top bar) ----------
+// New submissions + new messages from applicants, with an unseen count per admin.
+router.get('/notifications', async (req, res) => {
+  const me = await AdminUser.findByPk(req.admin.id, { attributes: ['id', 'notifSeenAt'] });
+  const seenAt = me?.notifSeenAt ? new Date(me.notifSeenAt) : new Date(0);
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000); // last 30 days
+
+  const [subs, msgs] = await Promise.all([
+    Submission.findAll({
+      where: { isDraft: false, submittedAt: { [Op.gte]: since } },
+      include: [{ model: Applicant, as: 'applicant' }, { model: FormActivation, as: 'activation' }],
+      order: [['submittedAt', 'DESC']], limit: 15,
+    }),
+    Communication.findAll({
+      where: { sender: 'applicant', createdAt: { [Op.gte]: since } },
+      include: [{ model: Submission, include: [{ model: Applicant, as: 'applicant' }] }],
+      order: [['createdAt', 'DESC']], limit: 15,
+    }),
+  ]);
+
+  const items = [
+    ...subs.map((s) => ({
+      type: 'submission', at: s.submittedAt, submissionId: s.id,
+      title: `New submission ${s.formNo || ''}`.trim(),
+      body: `${s.applicant?.name || s.applicant?.phone || 'Applicant'} · ${s.activation?.title || ''}`,
+    })),
+    ...msgs.map((c) => ({
+      type: 'message', at: c.createdAt, submissionId: c.submissionId,
+      title: `Message from ${c.Submission?.applicant?.name || c.Submission?.applicant?.phone || 'applicant'}${c.Submission?.formNo ? ' · ' + c.Submission.formNo : ''}`,
+      body: String(c.message || '').slice(0, 90),
+    })),
+  ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 20)
+    .map((n) => ({ ...n, unseen: new Date(n.at) > seenAt }));
+
+  res.json({ items, unseen: items.filter((n) => n.unseen).length });
+});
+
+router.post('/notifications/seen', async (req, res) => {
+  await AdminUser.update({ notifSeenAt: new Date() }, { where: { id: req.admin.id } });
+  res.json({ ok: true });
+});
+
+// ---------- Audit log ----------
+router.get('/audit', requirePerm('audit'), async (req, res) => {
+  const where = {};
+  if (req.query.action) where.action = { [Op.like]: `${req.query.action}%` };
+  if (req.query.q) {
+    const like = { [Op.like]: `%${req.query.q}%` };
+    where[Op.or] = [{ actorName: like }, { summary: like }, { action: like }, { entityId: String(req.query.q) }];
+  }
+  if (req.query.from) where.createdAt = { [Op.gte]: new Date(req.query.from) };
+  if (req.query.to) where.createdAt = { ...(where.createdAt || {}), [Op.lte]: new Date(req.query.to + 'T23:59:59') };
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const offset = Number(req.query.offset) || 0;
+  const { rows, count } = await AuditLog.findAndCountAll({ where, order: [['createdAt', 'DESC']], limit, offset });
+  res.json({ rows, count, limit, offset });
+});
 
 // ---------- User management (with privileges) ----------
 router.get('/users', requirePerm('users'), async (_req, res) => {
@@ -69,6 +131,7 @@ router.post('/users', requirePerm('users'), async (req, res) => {
     role: role === 'owner' ? 'owner' : 'staff',
     permissions: JSON.stringify(permissions),
   });
+  await audit(req, 'user.create', { entity: 'AdminUser', entityId: user.id, summary: `Created user ${name} (${email}) as ${user.role}` });
   res.json({ ok: true, id: user.id });
 });
 
@@ -88,6 +151,7 @@ router.post('/users/:id', requirePerm('users'), async (req, res) => {
     ...(permissions ? { permissions: JSON.stringify(permissions) } : {}),
     ...(active != null ? { active } : {}),
   });
+  await audit(req, 'user.update', { entity: 'AdminUser', entityId: user.id, summary: `Updated user ${user.name} (${user.email})${password ? ' — password reset' : ''}${active === false ? ' — deactivated' : ''}` });
   res.json({ ok: true });
 });
 
@@ -100,6 +164,7 @@ router.delete('/users/:id', requirePerm('users'), async (req, res) => {
     if (owners <= 1) return res.status(400).json({ error: 'Cannot delete the last owner' });
   }
   await user.destroy();
+  await audit(req, 'user.delete', { entity: 'AdminUser', entityId: req.params.id, summary: `Deleted user ${user.name} (${user.email})` });
   res.json({ ok: true });
 });
 
@@ -187,6 +252,7 @@ router.post('/templates', requirePerm('forms'), async (req, res) => {
       }
     }
     await tx.commit();
+    await audit(req, 'template.save', { entity: 'FormTemplate', entityId: template.id, summary: `${id ? 'Updated' : 'Created'} form template "${name}" (${sections.length} sections)` });
     res.json({ ok: true, id: template.id });
   } catch (e) {
     await tx.rollback();
@@ -322,6 +388,7 @@ router.post('/activations', requirePerm('forms'), async (req, res) => {
     }
     await FormStatus.destroy({ where: { activationId: act.id, id: { [Op.notIn]: keepIds.length ? keepIds : [0] } }, transaction: tx });
     await tx.commit();
+    await audit(req, 'activation.save', { entity: 'FormActivation', entityId: act.id, summary: `${id ? 'Updated' : 'Created'} active form "${act.title}"` });
     res.json({ ok: true, id: act.id, slug: act.slug });
   } catch (e) {
     await tx.rollback();
@@ -346,6 +413,7 @@ router.post('/activations/:id/toggle', requirePerm('forms'), async (req, res) =>
     return res.status(400).json({ error: 'Set a First Status before activating the form' });
   }
   await a.update({ active: !a.active });
+  await audit(req, 'activation.toggle', { entity: 'FormActivation', entityId: a.id, summary: `${a.active ? 'Activated' : 'Deactivated'} form "${a.title}"` });
   res.json({ ok: true, active: a.active });
 });
 
@@ -404,6 +472,48 @@ router.get('/submissions/:id', requirePerm('submissions'), async (req, res) => {
   res.json(s);
 });
 
+// ---------- Edit form data after submission (audited, permission-gated) ----------
+router.post('/submissions/:id/data', requirePerm('edit'), async (req, res) => {
+  const s = await Submission.findByPk(req.params.id, {
+    include: [{
+      model: FormActivation, as: 'activation',
+      include: [{ model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] }],
+    }],
+  });
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const newData = req.body.data || {};
+  const oldData = JSON.parse(s.data || '{}');
+
+  // Field-level change list for the audit trail
+  const fields = (s.activation?.template?.sections || []).flatMap((sec) => sec.fields);
+  const fmt = (v) => (v == null || v === '' ? '(empty)' : Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? (v.filename || '[file]') : String(v));
+  const changes = [];
+  for (const f of fields) {
+    const before = fmt(oldData[f.id]);
+    const after = fmt(newData[f.id]);
+    if (before !== after) changes.push({ field: f.label, from: before, to: after });
+  }
+  if (!changes.length) return res.json({ ok: true, changed: 0 });
+
+  await s.update({ data: JSON.stringify(newData) });
+  // Re-run automatic scoring with the corrected data
+  try {
+    const { scoreSubmission, detectDuplicates } = require('../services/scoring');
+    const [{ score, details }, flags] = await Promise.all([
+      scoreSubmission(s.activation, newData),
+      detectDuplicates(s.activation, newData, s.id),
+    ]);
+    await s.update({ score, scoreDetails: JSON.stringify(details), flags: JSON.stringify(flags) });
+  } catch (e) { console.error('[scoring]', e.message); }
+
+  await audit(req, 'submission.edit', {
+    entity: 'Submission', entityId: s.id,
+    summary: `Edited form ${s.formNo || '#' + s.id}: ${changes.length} field${changes.length > 1 ? 's' : ''} changed (${changes.slice(0, 3).map((c) => c.field).join(', ')}${changes.length > 3 ? '…' : ''})`,
+    details: { changes },
+  });
+  res.json({ ok: true, changed: changes.length, changes });
+});
+
 async function changeStatus(submissionId, statusId, note, adminName) {
   const s = await Submission.findByPk(submissionId, {
     include: [
@@ -427,7 +537,9 @@ async function changeStatus(submissionId, statusId, note, adminName) {
 
 router.post('/submissions/:id/status', requirePerm('status'), async (req, res) => {
   try {
-    res.json(await changeStatus(req.params.id, req.body.statusId, req.body.note, req.admin.name));
+    const out = await changeStatus(req.params.id, req.body.statusId, req.body.note, req.admin.name);
+    await audit(req, 'status.change', { entity: 'Submission', entityId: out.id, summary: `Changed status of submission #${out.id} to "${out.status}"${req.body.note ? ` (note: ${req.body.note})` : ''}` });
+    res.json(out);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -440,6 +552,8 @@ router.post('/submissions/bulk-status', requirePerm('status'), async (req, res) 
     try { results.push(await changeStatus(id, statusId, note, req.admin.name)); }
     catch (e) { results.push({ id, error: e.message }); }
   }
+  const okCount = results.filter((r) => !r.error).length;
+  await audit(req, 'status.bulk', { entity: 'Submission', summary: `Bulk status change: ${okCount}/${ids.length} submissions → "${results.find((r) => !r.error)?.status || ''}"`, details: { ids, note } });
   res.json(results);
 });
 
@@ -453,6 +567,7 @@ router.post('/submissions/:id/communications', requirePerm('communicate'), async
   const { sendSms, sendEmail } = require('../services/notify');
   if (channel === 'sms') await sendSms(s.applicant?.phone, message);
   if (channel === 'email') await sendEmail(s.applicant?.email, 'Message regarding your application', message);
+  await audit(req, 'message.send', { entity: 'Submission', entityId: s.id, summary: `Sent ${channel} message on ${s.formNo || '#' + s.id}: "${String(message).slice(0, 60)}"` });
   res.json(comm);
 });
 
@@ -478,6 +593,7 @@ router.post('/submissions/bulk-communications', requirePerm('communicate'), asyn
     }
     results.push({ id: s.id, formNo: s.formNo, detail });
   }
+  await audit(req, 'message.bulk', { entity: 'Submission', summary: `Bulk message to ${results.length} applicants via ${channels.join('+')}: "${String(message).slice(0, 60)}"`, details: { ids } });
   res.json({ ok: true, count: results.length, results });
 });
 
@@ -608,6 +724,7 @@ router.post('/settings', requirePerm('settings'), async (req, res) => {
   await settingsService.saveFromAdmin(req.body.settings || {});
   const { getGateway } = require('../services/payment');
   const gw = await getGateway();
+  await audit(req, 'settings.save', { entity: 'Setting', summary: 'Updated settings (SMS/Email/Razorpay/Login)' });
   res.json({ ok: true, razorpayMode: gw.mock ? 'mock' : (gw.keyId || '').startsWith('rzp_live') ? 'live' : 'test' });
 });
 

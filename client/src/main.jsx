@@ -15,6 +15,7 @@ import SubmissionDetail from './admin/SubmissionDetail.jsx';
 import Students from './admin/Students.jsx';
 import Settings from './admin/Settings.jsx';
 import Users from './admin/Users.jsx';
+import AuditLog from './admin/AuditLog.jsx';
 import Designer from './admin/Designer.jsx';
 
 import Home from './public/Home.jsx';
@@ -43,6 +44,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="students" element={<Students />} />
           <Route path="settings" element={<Settings />} />
           <Route path="users" element={<Users />} />
+          <Route path="audit" element={<AuditLog />} />
         </Route>
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

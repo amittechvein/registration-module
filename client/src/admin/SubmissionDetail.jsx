@@ -2,14 +2,57 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
 
+/** Inline editor for one field, matching its configured type. */
+function EditInput({ fld, value, onChange }) {
+  let opts = []; try { opts = JSON.parse(fld.options || '[]').filter(Boolean); } catch {}
+  switch (fld.fieldType) {
+    case 'textarea':
+      return <textarea rows={2} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+    case 'select':
+    case 'radio':
+      return (
+        <select value={value || ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      );
+    case 'checkbox':
+      return (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {opts.map((o) => {
+            const arr = Array.isArray(value) ? value : [];
+            return (
+              <label className="check" key={o} style={{ margin: 0 }}>
+                <input type="checkbox" checked={arr.includes(o)} onChange={(e) => onChange(e.target.checked ? [...arr, o] : arr.filter((x) => x !== o))} /> {o}
+              </label>
+            );
+          })}
+        </div>
+      );
+    case 'date':
+      return <input type="date" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+    case 'number':
+      return <input type="number" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+    case 'phone':
+      return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 10))} />;
+    default:
+      return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+  }
+}
+
 export default function SubmissionDetail() {
   const { id } = useParams();
   const [s, setS] = useState(null);
   const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
   const [newStatus, setNewStatus] = useState('');
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState('');
   const [channel, setChannel] = useState('portal');
+  const [showEmpty, setShowEmpty] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editData, setEditData] = useState({});
+  const [saving, setSaving] = useState(false);
 
   const load = () => adminApi.get(`/submissions/${id}`).then((r) => setS(r.data)).catch((e) => setErr(errMsg(e)));
   useEffect(() => { load(); }, [id]); // eslint-disable-line
@@ -21,6 +64,22 @@ export default function SubmissionDetail() {
   const sections = [...(s.activation?.template?.sections || [])]
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
     .map((sec) => ({ ...sec, fields: [...(sec.fields || [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) }));
+
+  const isEmpty = (v) => v == null || v === '' || (Array.isArray(v) && !v.length);
+  const isFileVal = (v) => v && typeof v === 'object' && !Array.isArray(v) && v.attachmentId;
+
+  const startEdit = () => { setEditData({ ...data }); setEditing(true); setOk(''); setErr(''); };
+  const cancelEdit = () => { setEditing(false); setEditData({}); };
+  const saveEdit = async () => {
+    setSaving(true); setErr(''); setOk('');
+    try {
+      const { data: r } = await adminApi.post(`/submissions/${id}/data`, { data: editData });
+      setOk(r.changed ? `Saved — ${r.changed} field${r.changed > 1 ? 's' : ''} updated. The change is recorded in the audit log.` : 'No changes to save.');
+      setEditing(false);
+      load();
+    } catch (e) { setErr(errMsg(e)); }
+    setSaving(false);
+  };
 
   const updateStatus = async () => {
     if (!newStatus) return;
@@ -51,6 +110,7 @@ export default function SubmissionDetail() {
         </div>
       </div>
       {err && <div className="alert err">{err}</div>}
+      {ok && <div className="alert ok">{ok}</div>}
 
       <div className="grid cols-4">
         <div className="stat"><div className="lbl">Status</div><div className="num">{s.status ? <span className="badge" style={{ background: s.status.color, fontSize: 15 }}>{s.status.name}</span> : (s.isDraft ? 'Draft' : '—')}</div></div>
@@ -72,34 +132,57 @@ export default function SubmissionDetail() {
       <div className="grid cols-2" style={{ marginTop: 16, alignItems: 'start' }}>
         <div>
           <div className="card">
-            <h3>Form Data</h3>
-            {sections.map((sec) => (
-              <div key={sec.id} className="kv-section">
-                <div className="kv-head">{sec.title}</div>
-                <table className="kv-tbl">
-                  <tbody>
-                    {sec.fields.map((fld) => {
-                      const v = data[fld.id];
-                      const isFile = v && typeof v === 'object' && !Array.isArray(v) && v.attachmentId;
+            <div className="kv-toolbar">
+              <h3 style={{ margin: 0 }}>Form Data</h3>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {!editing && (
+                  <label className="check" style={{ margin: 0, fontSize: 12 }}>
+                    <input type="checkbox" checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)} /> Show empty
+                  </label>
+                )}
+                {hasPerm('edit') && !editing && !s.isDraft && (
+                  <button className="btn small ghost" onClick={startEdit}>✏️ Edit</button>
+                )}
+                {editing && (
+                  <>
+                    <button className="btn small green" onClick={saveEdit} disabled={saving}>{saving ? 'Saving…' : '💾 Save Changes'}</button>
+                    <button className="btn small ghost" onClick={cancelEdit} disabled={saving}>Cancel</button>
+                  </>
+                )}
+              </div>
+            </div>
+            {editing && <div className="alert ok" style={{ marginTop: 8 }}>Editing form data — every change is recorded in the audit log with before/after values. File attachments can't be replaced here.</div>}
+
+            {sections.map((sec) => {
+              const flds = editing ? sec.fields : (showEmpty ? sec.fields : sec.fields.filter((f) => !isEmpty(data[f.id])));
+              if (!flds.length) return null;
+              return (
+                <div key={sec.id} className="kv-section">
+                  <div className="kv-head">{sec.title}</div>
+                  <div className="kv-grid">
+                    {flds.map((fld) => {
+                      const v = editing ? editData[fld.id] : data[fld.id];
+                      const wide = ['textarea', 'checkbox'].includes(fld.fieldType) || (fld.label || '').length > 55;
                       return (
-                        <tr key={fld.id}>
-                          <td className="k">{fld.label}{fld.studentField ? <span title="Linked to student profile"> 🔗</span> : ''}</td>
-                          <td className="v">
-                            {isFile ? (
-                              <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${v.attachmentId}`, v.filename || 'document')}>
-                                📎 {v.filename || 'Download file'}
-                              </button>
-                            ) : (
-                              Array.isArray(v) ? v.join(', ') : ((v ?? '') === '' ? <span className="kv-empty">—</span> : String(v))
-                            )}
-                          </td>
-                        </tr>
+                        <div key={fld.id} className={`kv-item ${wide ? 'wide' : ''}`}>
+                          <div className="kv-k">{fld.label}{fld.studentField ? <span title="Linked to student profile"> 🔗</span> : ''}</div>
+                          {editing && fld.fieldType !== 'file' ? (
+                            <EditInput fld={fld} value={v} onChange={(nv) => setEditData((d) => ({ ...d, [fld.id]: nv }))} />
+                          ) : isFileVal(editing ? data[fld.id] : v) ? (
+                            <button className="btn small ghost" onClick={() => { const fv = editing ? data[fld.id] : v; downloadBlob(`/api/admin/attachments/${fv.attachmentId}`, fv.filename || 'document'); }}>
+                              📎 {(editing ? data[fld.id] : v).filename || 'File'}
+                            </button>
+                          ) : (
+                            <div className="kv-v">{Array.isArray(v) ? v.join(', ') : (isEmpty(v) ? <span className="kv-empty">—</span> : String(v))}</div>
+                          )}
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+                  </div>
+                </div>
+              );
+            })}
+            {!editing && !showEmpty && <div className="muted" style={{ marginTop: 6, fontSize: 11.5 }}>Empty fields are hidden — tick "Show empty" to see all fields.</div>}
           </div>
 
           <div className="card">

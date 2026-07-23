@@ -12,13 +12,15 @@ const AdminUser = sequelize.define('AdminUser', {
   email: { type: DataTypes.STRING, unique: true },
   passwordHash: DataTypes.STRING,
   role: { type: DataTypes.STRING, defaultValue: 'staff' }, // owner (full access) | staff (permission based)
-  permissions: { type: DataTypes.TEXT, defaultValue: '{}' }, // JSON: {submissions,status,communicate,export,forms,students,settings,users}
+  permissions: { type: DataTypes.TEXT, defaultValue: '{}' }, // JSON: {submissions,status,communicate,export,forms,students,settings,users,edit,audit}
   active: { type: DataTypes.BOOLEAN, defaultValue: true },
+  notifSeenAt: { type: DataTypes.DATE, allowNull: true }, // last time this admin opened the notification bell
 });
 
 // All grantable permissions for staff users
 const ADMIN_PERMISSIONS = [
   { key: 'submissions', label: 'View submissions' },
+  { key: 'edit', label: 'Edit submitted form data' },
   { key: 'status', label: 'Update application status' },
   { key: 'communicate', label: 'Message applicants' },
   { key: 'export', label: 'Download PDF / Excel' },
@@ -26,7 +28,21 @@ const ADMIN_PERMISSIONS = [
   { key: 'students', label: 'View allotted students' },
   { key: 'settings', label: 'Manage settings (SMS/Email/Razorpay)' },
   { key: 'users', label: 'Manage users' },
+  { key: 'audit', label: 'View audit log' },
 ];
+
+// ---- Audit trail: every important admin action is recorded here ----
+const AuditLog = sequelize.define('AuditLog', {
+  actorType: { type: DataTypes.STRING, defaultValue: 'admin' }, // admin | applicant | system
+  actorId: { type: DataTypes.INTEGER, allowNull: true },
+  actorName: { type: DataTypes.STRING, defaultValue: '' },
+  action: { type: DataTypes.STRING, allowNull: false }, // e.g. login, submission.edit, status.change
+  entity: { type: DataTypes.STRING, allowNull: true }, // e.g. Submission, FormActivation, AdminUser
+  entityId: { type: DataTypes.STRING, allowNull: true },
+  summary: { type: DataTypes.TEXT, defaultValue: '' }, // human-readable one-liner
+  details: { type: DataTypes.TEXT, allowNull: true }, // JSON: field-level changes etc.
+  ip: { type: DataTypes.STRING, defaultValue: '' },
+});
 
 const AcademicSession = sequelize.define('AcademicSession', {
   name: { type: DataTypes.STRING, allowNull: false }, // e.g. 2026-27
@@ -233,6 +249,7 @@ module.exports = {
   Setting,
   AdminUser,
   ADMIN_PERMISSIONS,
+  AuditLog,
   AcademicSession,
   ClassRoom,
   FormTemplate,
