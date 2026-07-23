@@ -345,8 +345,17 @@ export default function FormPage() {
   return (
     <div className="pub-wrap">
       <div className="pub-header">
-        <h1>{form.title}</h1>
-        <div style={{ opacity: 0.92 }}>{form.className} · Session {form.session} {Number(form.price) > 0 && <> · Form fee ₹{Number(form.price).toFixed(0)}</>}</div>
+        <div className="pub-brand">
+          <img className="pub-logo" src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+          <div>
+            <h1>{form.title}</h1>
+            <div style={{ opacity: 0.92, fontSize: 14 }}>{form.className} · Session {form.session} {Number(form.price) > 0 && <> · Form fee ₹{Number(form.price).toFixed(0)}</>}</div>
+          </div>
+        </div>
+        <div className="pub-nav">
+          <Link to="/">← All forms</Link>
+          <Link to="/track">📋 Track application</Link>
+        </div>
       </div>
 
       {form.instructionsHtml && (

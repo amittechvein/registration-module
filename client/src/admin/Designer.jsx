@@ -338,7 +338,6 @@ export default function Designer() {
 
   const SIDEBAR_TABS = [
     { key: 'sections', icon: '▤', label: 'Sections' },
-    { key: 'fields', icon: '🔤', label: 'Fields' },
     { key: 'elements', icon: '✚', label: 'Elements' },
   ];
 
@@ -434,21 +433,8 @@ export default function Designer() {
               ))}
             </>
           )}
-          {tab === 'fields' && (
-            <>
-              <div className="cv-title">Single fields</div>
-              <select value={palSection?.id || ''} style={{ marginBottom: 8 }} onChange={(e) => setPalSec(Number(e.target.value))}>
-                {sections.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-              </select>
-              {(palSection?.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((f) => (
-                <div key={f.id} className={`cv-item ${usedFieldIds.has(f.id) ? 'used' : ''}`} draggable
-                  onDragStart={paletteDrag('field', { fieldId: f.id })}
-                  onClick={() => addElement('field', { fieldId: f.id })}>
-                  <b>{f.label}</b>
-                  <span>{f.fieldType}{usedFieldIds.has(f.id) ? ' · on page ✓' : ''}</span>
-                </div>
-              ))}
-            </>
+          {tab === 'sections' && (
+            <div className="cv-hint" style={{ marginTop: 10 }}>Tip: to adjust fields individually, place a section block and press ⛓✂ Ungroup in its toolbar.</div>
           )}
           {tab === 'elements' && (
             <>

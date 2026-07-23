@@ -29,8 +29,16 @@ export default function TrackPage() {
   return (
     <div className="pub-wrap">
       <div className="pub-header">
-        <h1>Track Your Application</h1>
-        <div style={{ opacity: 0.92 }}>Login with the mobile number you used to apply</div>
+        <div className="pub-brand">
+          <img className="pub-logo" src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+          <div>
+            <h1>Track Your Application</h1>
+            <div style={{ opacity: 0.92, fontSize: 14 }}>Login with the mobile number you used to apply</div>
+          </div>
+        </div>
+        <div className="pub-nav">
+          <Link to="/">← All forms</Link>
+        </div>
       </div>
       {err && <div className="alert err">{err}</div>}
       {!loggedIn && <OtpLogin askProfile={false} onLoggedIn={() => setLoggedIn(true)} />}
@@ -63,11 +71,14 @@ export default function TrackPage() {
                     )}
                   </div>
                   <div className="section-title">Status history</div>
-                  {(s.statusLogs || []).map((l) => (
-                    <div key={l.id} className="muted" style={{ fontSize: 13, marginBottom: 3 }}>
-                      {new Date(l.createdAt).toLocaleString('en-IN')} — <b style={{ color: '#17203a' }}>{l.toStatus}</b>{l.note ? ` · ${l.note}` : ''}
-                    </div>
-                  ))}
+                  <div className="timeline">
+                    {(s.statusLogs || []).slice().reverse().map((l) => (
+                      <div key={l.id} className="tl-item">
+                        <b>{l.toStatus}</b>{l.note ? <span className="muted"> · {l.note}</span> : ''}
+                        <div className="muted">{new Date(l.createdAt).toLocaleString('en-IN')}</div>
+                      </div>
+                    ))}
+                  </div>
 
                   <div className="section-title">Messages</div>
                   <div className="thread">
