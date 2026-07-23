@@ -5,8 +5,15 @@ import OtpLogin from '../components/OtpLogin.jsx';
 import PubShell from '../components/PubShell.jsx';
 
 const isImageName = (n) => /\.(jpe?g|png|webp)$/i.test(n || '');
+// Photo & signature fields accept images only (no PDF)
+const isImageOnlyField = (label) => /photo|photograph|signature/i.test(label || '');
+// The student's own Date-of-Birth field (not father's/mother's DOB)
+const isDobField = (fld) => fld.studentField === 'dob' || /^date of birth$/i.test(String(fld.label || '').trim());
+const fmtDate = (d) => { try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return d; } };
 
 function FileUpload({ field, value, onChange }) {
+  const imageOnly = isImageOnlyField(field.label);
+  const accept = imageOnly ? '.jpg,.jpeg,.png,.webp' : '.jpg,.jpeg,.png,.webp,.pdf';
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [preview, setPreview] = useState(null);
@@ -31,6 +38,7 @@ function FileUpload({ field, value, onChange }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setErr('');
+    if (imageOnly && !file.type.startsWith('image/')) { setErr('Only image files (JPG/PNG) are allowed for this field'); e.target.value = ''; return; }
     if (file.size > 5 * 1024 * 1024) { setErr('File must be smaller than 5 MB'); return; }
     setBusy(true);
     try {
@@ -50,20 +58,20 @@ function FileUpload({ field, value, onChange }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
             <span className="pill on">📎 {value.filename}</span>
             <label className="btn small ghost" style={{ cursor: 'pointer' }}>
-              Replace<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" hidden onChange={pick} />
+              Replace<input type="file" accept={accept} hidden onChange={pick} />
             </label>
           </div>
         </div>
       ) : (
-        <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" onChange={pick} disabled={busy} style={{ marginTop: 5 }} />
+        <input type="file" accept={accept} onChange={pick} disabled={busy} style={{ marginTop: 5 }} />
       )}
-      <div className="muted">{busy ? 'Uploading securely…' : 'JPG, PNG or PDF · max 5 MB'}</div>
+      <div className="muted">{busy ? 'Uploading securely…' : imageOnly ? 'Image only — JPG or PNG · max 5 MB' : 'JPG, PNG or PDF · max 5 MB'}</div>
       {err && <div className="alert err" style={{ marginTop: 6 }}>{err}</div>}
     </div>
   );
 }
 
-function FieldInput({ field, value, onChange }) {
+function FieldInput({ field, value, onChange, dob }) {
   const opts = JSON.parse(field.options || '[]').filter(Boolean);
   const common = { id: `f${field.id}` };
   switch (field.fieldType) {
@@ -102,7 +110,7 @@ function FieldInput({ field, value, onChange }) {
         </div>
       );
     case 'date':
-      return <input {...common} type="date" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+      return <input {...common} type="date" min={dob?.min || undefined} max={dob?.max || undefined} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
     case 'number':
       return <input {...common} type="number" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
     case 'email':
@@ -131,10 +139,27 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
       return v == null || v === '' || (Array.isArray(v) && !v.length);
     });
 
+  // Date-of-birth eligibility check, enforced immediately on the step itself
+  const dobIssuesIn = (sec) => {
+    if (!form.dob) return [];
+    const out = [];
+    for (const fld of sec.fields) {
+      if (fld.fieldType !== 'date' || !isDobField(fld)) continue;
+      const v = data[fld.id];
+      if (!v) continue;
+      if (form.dob.min && v < form.dob.min) out.push(`${fld.label}: must be on or after ${fmtDate(form.dob.min)} — this child is not eligible for this class`);
+      if (form.dob.max && v > form.dob.max) out.push(`${fld.label}: must be on or before ${fmtDate(form.dob.max)} — this child is not eligible for this class`);
+    }
+    return out;
+  };
+
   const next = () => {
-    const missing = missingIn(current);
-    if (missing.length) {
-      setStepErrs(missing.map((m) => `${m.label} is required`));
+    const problems = [
+      ...missingIn(current).map((m) => `${m.label} is required`),
+      ...dobIssuesIn(current),
+    ];
+    if (problems.length) {
+      setStepErrs(problems);
       return;
     }
     setStepErrs([]);
@@ -154,6 +179,16 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
 
   return (
     <>
+      {/* Instructions appear on the FIRST step only */}
+      {step === 0 && form.instructionsHtml && (
+        <div className="card instructions">
+          <h3>Instructions</h3>
+          <div dangerouslySetInnerHTML={{ __html: form.instructionsHtml }} />
+        </div>
+      )}
+      {step === 0 && form.dob && (
+        <div className="alert ok">Eligibility: date of birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
+      )}
       {hadDraft && step === 0 && <div className="alert ok">Your saved draft was loaded — continue where you left off. The form auto-saves at every step.</div>}
 
       <div className="steps">
@@ -177,7 +212,7 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
               return (
                 <label className={`fld ${wide ? 'span-all' : ''}`} key={fld.id} htmlFor={`f${fld.id}`}>
                   {fld.label} {fld.required && <span className="req">*</span>}
-                  <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} />
+                  <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} dob={fld.fieldType === 'date' && isDobField(fld) ? form.dob : null} />
                 </label>
               );
             })}
@@ -248,7 +283,10 @@ export default function FormPage() {
   const [closed, setClosed] = useState('');
   const [loggedIn, setLoggedIn] = useState(!!sessionStorage.getItem('applicantToken'));
   const [data, setData] = useState({});
-  const [draftInfo, setDraftInfo] = useState(null);
+  const [draft, setDraft] = useState(null);          // in-progress draft {id, data}
+  const [submitted, setSubmitted] = useState([]);    // previously submitted forms
+  const [started, setStarted] = useState(false);     // wizard visible
+  const [wizKey, setWizKey] = useState(0);           // remount wizard for a fresh application
   const [err, setErr] = useState('');
   const [errs, setErrs] = useState([]);
   const [ok, setOk] = useState('');
@@ -265,18 +303,29 @@ export default function FormPage() {
       });
   }, [slug]);
 
-  // load draft after login
+  // load draft + previous submissions after login
   useEffect(() => {
     if (loggedIn && form) {
       publicApi.get(`/forms/${slug}/draft`).then((r) => {
-        if (r.data) {
-          setDraftInfo(r.data);
-          setData(r.data.data || {});
-          if (!r.data.isDraft) setFormNo(r.data.formNo);
+        const d = r.data || {};
+        setSubmitted(d.submitted || []);
+        if (d.draft) {
+          setDraft(d.draft);
+          setData(d.draft.data || {});
+          setStarted(true);
+        } else if (!(d.submitted || []).length) {
+          setStarted(true); // first-time applicant → straight into the form
         }
       }).catch(() => setLoggedIn(false));
     }
   }, [loggedIn, form, slug]);
+
+  // Begin a brand-new application (multiple children from the same number)
+  const startNew = () => {
+    setData({}); setDraft(null); setFormNo(''); setOk(''); setErr(''); setErrs([]);
+    setStarted(true); setWizKey((k) => k + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // autosave draft (half-filled forms can be resumed)
   const setField = (fieldId, value) => {
@@ -321,10 +370,13 @@ export default function FormPage() {
         const { data: v } = await publicApi.post(`/forms/${slug}/payment/verify`, verifyBody);
         setFormNo(v.formNo);
         setOk(`Payment successful! Your form number is ${v.formNo}.`);
+        setSubmitted((list) => [{ formNo: v.formNo }, ...list]);
       } else {
         setFormNo(res.formNo);
         setOk(`Form submitted! Your form number is ${res.formNo}.`);
+        setSubmitted((list) => [{ formNo: res.formNo }, ...list]);
       }
+      setDraft(null); setStarted(false);
     } catch (e) {
       const list = e.response?.data?.errors;
       if (list) setErrs(list);
@@ -341,8 +393,6 @@ export default function FormPage() {
   );
   if (!form) return <PubShell>{err ? <div className="alert err">{err}</div> : 'Loading…'}</PubShell>;
 
-  const alreadySubmitted = draftInfo && !draftInfo.isDraft;
-
   return (
     <PubShell>
       <div className="pub-header">
@@ -355,28 +405,48 @@ export default function FormPage() {
         </div>
       </div>
 
-      {form.instructionsHtml && (
+      {/* Before login: show instructions so parents can read them first */}
+      {!loggedIn && form.instructionsHtml && (
         <div className="card instructions">
           <h3>Instructions</h3>
           <div dangerouslySetInnerHTML={{ __html: form.instructionsHtml }} />
         </div>
       )}
-      {form.dob && (
-        <div className="alert ok">Eligibility: date of birth must be between <b>{form.dob.min || 'any'}</b> and <b>{form.dob.max || 'any'}</b>.</div>
+      {!loggedIn && form.dob && (
+        <div className="alert ok">Eligibility: date of birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
       )}
 
       {!loggedIn && <OtpLogin onLoggedIn={() => setLoggedIn(true)} />}
 
-      {loggedIn && (formNo || alreadySubmitted) && (
+      {/* Just-submitted success */}
+      {loggedIn && formNo && (
         <div className="card">
-          <div className="alert ok">{ok || `This form has already been submitted.`}</div>
-          <p>Your form number: <b style={{ fontSize: 20 }}>{formNo || draftInfo?.formNo}</b></p>
-          <Link className="btn" to="/track">Track your application →</Link>
+          <div className="alert ok">{ok}</div>
+          <p>Your form number: <b style={{ fontSize: 20 }}>{formNo}</b></p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Link className="btn" to="/track">Track your application →</Link>
+            <button className="btn ghost" onClick={startNew}>➕ Submit Another Application</button>
+          </div>
         </div>
       )}
 
-      {loggedIn && !formNo && !alreadySubmitted && (
+      {/* Previously submitted forms from this mobile number */}
+      {loggedIn && !formNo && submitted.length > 0 && (
+        <div className="card">
+          <b>Applications already submitted from this mobile number:</b>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 10px' }}>
+            {submitted.map((x, i) => <span key={i} className="pill on">📄 {x.formNo || '(processing)'}</span>)}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Link className="btn ghost" to="/track">Track applications</Link>
+            {!started && <button className="btn" onClick={startNew}>➕ Fill a New Application (another child)</button>}
+          </div>
+        </div>
+      )}
+
+      {loggedIn && !formNo && started && (
         <Wizard
+          key={wizKey}
           form={form}
           data={data}
           setField={setField}
@@ -384,7 +454,7 @@ export default function FormPage() {
           err={err}
           busy={busy}
           submit={submit}
-          hadDraft={!!draftInfo?.isDraft}
+          hadDraft={!!draft}
         />
       )}
     </PubShell>

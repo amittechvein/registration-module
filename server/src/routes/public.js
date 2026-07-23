@@ -210,11 +210,13 @@ async function linkAttachments(sub, data, applicantId) {
   if (ids.length) await Attachment.update({ submissionId: sub.id }, { where: { id: ids, applicantId } });
 }
 
+// One applicant (phone number) can submit MULTIPLE applications (e.g. for
+// more than one child). Only ONE in-progress draft is kept per form at a time;
+// once submitted, a new draft can be started.
 router.post('/forms/:slug/draft', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });
   if (!a || !isOpen(a)) return res.status(403).json({ error: 'Form closed' });
-  let sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id } });
-  if (sub && !sub.isDraft) return res.status(400).json({ error: 'Form already submitted' });
+  let sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id, isDraft: true } });
   if (sub) await sub.update({ data: JSON.stringify(req.body.data || {}) });
   else sub = await Submission.create({ activationId: a.id, applicantId: req.applicant.id, data: JSON.stringify(req.body.data || {}), isDraft: true });
   await linkAttachments(sub, req.body.data, req.applicant.id);
@@ -224,8 +226,17 @@ router.post('/forms/:slug/draft', async (req, res) => {
 router.get('/forms/:slug/draft', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });
   if (!a) return res.status(404).json({ error: 'Not found' });
-  const sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id } });
-  res.json(sub ? { id: sub.id, isDraft: sub.isDraft, data: JSON.parse(sub.data || '{}'), formNo: sub.formNo, paymentStatus: sub.paymentStatus } : null);
+  const subs = await Submission.findAll({
+    where: { activationId: a.id, applicantId: req.applicant.id },
+    order: [['createdAt', 'DESC']],
+  });
+  const draft = subs.find((x) => x.isDraft);
+  res.json({
+    draft: draft ? { id: draft.id, data: JSON.parse(draft.data || '{}') } : null,
+    submitted: subs.filter((x) => !x.isDraft).map((x) => ({
+      id: x.id, formNo: x.formNo, paymentStatus: x.paymentStatus, submittedAt: x.submittedAt,
+    })),
+  });
 });
 
 // ---------- Submit (with payment when enabled) ----------
@@ -256,8 +267,9 @@ router.post('/forms/:slug/submit', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });
   if (!a || !isOpen(a)) return res.status(403).json({ error: 'Form closed' });
 
-  let sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id } });
-  if (sub && !sub.isDraft) return res.status(400).json({ error: 'Form already submitted' });
+  // Use the current draft if one exists; otherwise start a new submission —
+  // one phone number may submit multiple forms (e.g. for multiple children).
+  let sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id, isDraft: true } });
   const data = req.body.data || {};
   const errors = await validateSubmission(a, data);
   if (errors.length) return res.status(400).json({ errors });
@@ -292,11 +304,13 @@ router.post('/forms/:slug/submit', async (req, res) => {
 router.post('/forms/:slug/payment/verify', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });
   if (!a) return res.status(404).json({ error: 'Not found' });
-  const sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id } });
-  if (!sub) return res.status(404).json({ error: 'Submission not found' });
   const { orderId, paymentId, signature } = req.body;
-  const pay = await Payment.findOne({ where: { submissionId: sub.id, orderId } });
+  // Resolve the submission via the payment order (an applicant can have
+  // several submissions on the same form, so order id is the reliable link)
+  const pay = await Payment.findOne({ where: { orderId } });
   if (!pay) return res.status(400).json({ error: 'Payment order not found' });
+  const sub = await Submission.findOne({ where: { id: pay.submissionId, activationId: a.id, applicantId: req.applicant.id } });
+  if (!sub) return res.status(404).json({ error: 'Submission not found' });
 
   const gw = await payment.getGateway();
   if (!(await payment.verifySignature({ orderId, paymentId, signature }))) {

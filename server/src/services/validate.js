@@ -1,4 +1,9 @@
-const { FormSection, FormField } = require('../models');
+const { FormSection, FormField, Attachment } = require('../models');
+
+/** Fields that must be image uploads (photo / signature) — PDFs not allowed. */
+const IMAGE_ONLY = /photo|photograph|signature/i;
+/** Is this the student's own Date-of-Birth field? (not father's/mother's DOB) */
+const isDobField = (field) => field.studentField === 'dob' || /^date of birth$/i.test(String(field.label || '').trim());
 
 /**
  * Server-side validation of submission data against the template definition
@@ -20,8 +25,16 @@ async function validateSubmission(activation, data) {
         continue;
       }
       if (field.fieldType === 'file') {
-        if (field.required && !(value && typeof value === 'object' && value.attachmentId)) {
+        const attId = value && typeof value === 'object' && value.attachmentId ? value.attachmentId : null;
+        if (field.required && !attId) {
           if (!errors.includes(`${field.label} is required`)) errors.push(`${field.label} is required`);
+        }
+        // Photo & signature fields must be images (JPG/PNG/WEBP), never PDF
+        if (attId && IMAGE_ONLY.test(field.label)) {
+          const att = await Attachment.findByPk(attId, { attributes: ['id', 'mimetype'] });
+          if (att && !String(att.mimetype).startsWith('image/')) {
+            errors.push(`${field.label} must be an image file (JPG or PNG)`);
+          }
         }
         continue;
       }
@@ -49,7 +62,7 @@ async function validateSubmission(activation, data) {
         } catch {}
       }
       // DOB validation from the activation settings, applied to the field linked to Date of Birth
-      if (activation.dobValidationEnabled && field.studentField === 'dob') {
+      if (activation.dobValidationEnabled && isDobField(field)) {
         const d = new Date(str);
         if (Number.isNaN(d.getTime())) errors.push(`${field.label} must be a valid date`);
         else {

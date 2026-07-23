@@ -17,7 +17,10 @@ export default function SubmissionDetail() {
   if (!s) return <div>{err ? <div className="alert err">{err}</div> : 'Loading…'}</div>;
 
   const data = JSON.parse(s.data || '{}');
-  const sections = s.activation?.template?.sections || [];
+  // Sections & fields in their designed order (sortOrder), same as the form itself
+  const sections = [...(s.activation?.template?.sections || [])]
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((sec) => ({ ...sec, fields: [...(sec.fields || [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) }));
 
   const updateStatus = async () => {
     if (!newStatus) return;
@@ -71,22 +74,23 @@ export default function SubmissionDetail() {
           <div className="card">
             <h3>Form Data</h3>
             {sections.map((sec) => (
-              <div key={sec.id}>
-                <div className="section-title">{sec.title}</div>
-                <table className="tbl">
+              <div key={sec.id} className="kv-section">
+                <div className="kv-head">{sec.title}</div>
+                <table className="kv-tbl">
                   <tbody>
                     {sec.fields.map((fld) => {
                       const v = data[fld.id];
+                      const isFile = v && typeof v === 'object' && !Array.isArray(v) && v.attachmentId;
                       return (
                         <tr key={fld.id}>
-                          <td style={{ width: '45%' }} className="muted">{fld.label}{fld.studentField ? ' 🔗' : ''}</td>
-                          <td>
-                            {v && typeof v === 'object' && !Array.isArray(v) && v.attachmentId ? (
+                          <td className="k">{fld.label}{fld.studentField ? <span title="Linked to student profile"> 🔗</span> : ''}</td>
+                          <td className="v">
+                            {isFile ? (
                               <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${v.attachmentId}`, v.filename || 'document')}>
                                 📎 {v.filename || 'Download file'}
                               </button>
                             ) : (
-                              <b>{Array.isArray(v) ? v.join(', ') : (v ?? '—')}</b>
+                              Array.isArray(v) ? v.join(', ') : ((v ?? '') === '' ? <span className="kv-empty">—</span> : String(v))
                             )}
                           </td>
                         </tr>
