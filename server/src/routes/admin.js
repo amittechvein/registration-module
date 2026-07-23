@@ -202,6 +202,47 @@ router.post('/templates/:id/layout', requirePerm('forms'), async (req, res) => {
   res.json({ ok: true });
 });
 
+// Live preview of the designed layout with sample data (opens inline)
+router.get('/templates/:id/preview-pdf', requirePerm('forms'), async (req, res) => {
+  const t = await FormTemplate.findByPk(req.params.id, {
+    include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }],
+  });
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const sample = {};
+  for (const sec of t.sections) {
+    for (const f of sec.fields) {
+      let opts = []; try { opts = JSON.parse(f.options || '[]'); } catch {}
+      sample[f.id] =
+        f.fieldType === 'date' ? '2021-06-15'
+        : f.fieldType === 'number' ? '3'
+        : f.fieldType === 'email' ? 'parent@example.com'
+        : f.fieldType === 'phone' ? '9876543210'
+        : f.fieldType === 'file' ? { attachmentId: 0, filename: 'document.jpg' }
+        : ['select', 'radio', 'checkbox'].includes(f.fieldType) ? (f.fieldType === 'checkbox' ? [opts[0] || 'Yes'] : (opts[0] || 'Sample'))
+        : 'Sample ' + f.label.split(' ').slice(0, 2).join(' ');
+    }
+  }
+  const s = {
+    id: 0, data: JSON.stringify(sample), formNo: 'PREVIEW-0001', submittedAt: new Date(),
+    amount: 1000, paymentStatus: 'paid',
+    payments: [{ status: 'paid', orderId: 'order_sample', paymentId: 'pay_sample', updatedAt: new Date() }],
+    attachments: [],
+    applicant: { name: 'Sample Parent', phone: '9876543210', email: 'parent@example.com' },
+    status: { name: 'Submitted', color: '#2563eb' },
+    activation: {
+      title: t.name, pdfTemplate: req.query.style || 'custom', template: t,
+      classRoom: { name: 'Nursery' }, session: { name: '2026-27' }, price: 1000,
+    },
+  };
+  const PDFDocument = require('pdfkit');
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="layout-preview.pdf"');
+  doc.pipe(res);
+  drawSubmissionPdf(doc, s);
+  doc.end();
+});
+
 router.delete('/templates/:id', requirePerm('forms'), async (req, res) => {
   const used = await FormActivation.count({ where: { templateId: req.params.id } });
   if (used) return res.status(400).json({ error: 'Template is used by an active form; deactivate instead' });

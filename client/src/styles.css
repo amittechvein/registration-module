@@ -152,6 +152,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-c
 .pal-item.used { opacity: .55; }
 .pal-item.pal-active { border-color: var(--brand); background: #dbeafe; font-weight: 700; }
 .dc-el.dc-group { background: rgba(255,255,255,.6); }
+.dz-toolbar { position: sticky; top: 0; z-index: 20; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 9px 14px; box-shadow: 0 3px 10px rgba(15,23,42,.06); }
+.dz-workspace { flex: 1; background: #dde3ec; border-radius: 12px; padding: 22px 10px; overflow: auto; max-height: 88vh; }
 .design-canvas { position: relative; background: #fff; border: 1px solid #cbd5e1; box-shadow: 0 2px 14px rgba(15,23,42,.12); flex-shrink: 0;
   background-image: linear-gradient(#f1f5f9 1px, transparent 1px), linear-gradient(90deg, #f1f5f9 1px, transparent 1px);
   background-size: 25px 25px; overflow: hidden; }

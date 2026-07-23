@@ -62,20 +62,25 @@ export default function TemplateBuilder() {
   };
   const dropSection = (si) => (e) => {
     e.preventDefault();
-    if (drag.current?.type !== 'section') return clearDrag();
+    // capture BEFORE the async state update — dragend may clear the ref first
+    const src = drag.current;
+    if (src?.type !== 'section') return clearDrag();
     setSections((s) => {
+      if (src.si < 0 || src.si >= s.length) return s;
       const a = [...s];
-      const [moved] = a.splice(drag.current.si, 1);
-      a.splice(si > drag.current.si ? si - 1 : si, 0, moved);
+      const [moved] = a.splice(src.si, 1);
+      a.splice(si > src.si ? si - 1 : si, 0, moved);
       return a;
     });
     clearDrag();
   };
 
   const moveField = (dstSi, dstFi) => {
-    const src = drag.current;
+    // capture BEFORE the async state update — dragend may clear the ref first
+    const src = drag.current ? { ...drag.current } : null;
     if (!src || src.type !== 'field') return;
     setSections((s) => {
+      if (!s[src.si] || !s[src.si].fields[src.fi] || !s[dstSi]) return s;
       const a = s.map((sec) => ({ ...sec, fields: [...sec.fields] }));
       const [moved] = a[src.si].fields.splice(src.fi, 1);
       let target = dstFi;

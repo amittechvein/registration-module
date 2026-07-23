@@ -3,14 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { adminApi, errMsg } from '../lib/api.js';
 
 /**
- * Visual PDF layout designer. Canvas is A4 at 1:1 PDF points (595 × 842).
- * - Whole sections are draggable, resizable blocks (fields reflow inside).
- * - Individual fields / text / photo / signature elements can also be placed.
- * - Palette: sections on the left → click one to see its fields on the right.
+ * Visual PDF layout designer (A4, 1 canvas unit = 1 print point).
+ * Sections are resizable blocks (fields reflow inside); plus single fields,
+ * text, lines, boxes, photo & signature. Zoom, undo, keyboard nudge,
+ * duplicate, layer order and live PDF preview included.
  */
 const A4W = 595, A4H = 842;
-const GRID = 5;
-const snap = (v) => Math.round(v / GRID) * GRID;
 const uid = () => 'e' + Math.random().toString(36).slice(2, 9);
 
 const defaultsFor = (kind) => ({
@@ -30,10 +28,16 @@ export default function Designer() {
   const [elements, setElements] = useState([]);
   const [settings, setSettings] = useState({ showHeader: true, topSpace: 100 });
   const [selId, setSelId] = useState(null);
-  const [palSec, setPalSec] = useState(null); // selected section in the palette
+  const [palSec, setPalSec] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [snapOn, setSnapOn] = useState(true);
   const [msg, setMsg] = useState(null);
   const dragRef = useRef(null);
   const canvasRef = useRef(null);
+  const histRef = useRef([]);
+
+  const GRID = 5;
+  const snap = (v) => (snapOn ? Math.round(v / GRID) * GRID : Math.round(v));
 
   const sections = (template?.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
   const allFields = sections.flatMap((s) => (s.fields || []).map((f) => ({ ...f, sectionTitle: s.title })));
@@ -41,6 +45,15 @@ export default function Designer() {
   const usedSectionIds = new Set(elements.filter((e) => e.kind === 'group').map((e) => e.sectionId));
   const sel = elements.find((e) => e.id === selId);
   const palSection = sections.find((s) => s.id === palSec);
+
+  const pushHist = () => {
+    histRef.current.push(JSON.stringify(elements));
+    if (histRef.current.length > 60) histRef.current.shift();
+  };
+  const undo = () => {
+    const prev = histRef.current.pop();
+    if (prev) { setElements(JSON.parse(prev).map((e) => ({ ...e }))); setSelId(null); }
+  };
 
   useEffect(() => {
     adminApi.get(`/templates/${id}`).then((r) => {
@@ -58,7 +71,6 @@ export default function Designer() {
     }).catch((e) => setMsg({ type: 'err', text: errMsg(e) }));
   }, [id]); // eslint-disable-line
 
-  /** Default: every section as a resizable block, flowing down two columns. */
   const autoLayout = (t) => {
     const els = [];
     const colX = [22, 305], colW = 268;
@@ -67,46 +79,70 @@ export default function Designer() {
       const n = (s.fields || []).length;
       const h = 20 + Math.max(1, n) * 22;
       const col = y[0] <= y[1] ? 0 : 1;
-      if (y[col] + h > 815) continue; // beyond one page — user can rearrange
+      if (y[col] + h > 815) continue;
       els.push({ id: uid(), kind: 'group', sectionId: s.id, x: colX[col], y: y[col], w: colW, h, fontSize: 8, cols: 1, showLabels: true, underline: true, color: '#1e3a8a', align: 'left' });
       y[col] += h + 10;
     }
     setElements(els);
   };
 
-  /* ---------- move / resize ---------- */
+  /* ---------- move / resize (zoom-aware, ref captured per gesture) ---------- */
   useEffect(() => {
     const move = (e) => {
       const d = dragRef.current;
       if (!d) return;
-      const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
+      const dx = (e.clientX - d.startX) / d.zoom, dy = (e.clientY - d.startY) / d.zoom;
       setElements((els) => els.map((el) => {
         if (el.id !== d.id) return el;
         if (d.mode === 'move') {
-          return { ...el, x: Math.max(0, Math.min(A4W - el.w, snap(d.origX + dx))), y: Math.max(0, Math.min(810 - el.h, snap(d.origY + dy))) };
+          return { ...el, x: Math.max(0, Math.min(A4W - el.w, snap(d.origX + dx))), y: Math.max(0, Math.min(815 - el.h, snap(d.origY + dy))) };
         }
-        return { ...el, w: Math.max(30, Math.min(A4W - el.x, snap(d.origW + dx))), h: Math.max(12, Math.min(818 - el.y, snap(d.origH + dy))) };
+        return { ...el, w: Math.max(30, Math.min(A4W - el.x, snap(d.origW + dx))), h: Math.max(10, Math.min(820 - el.y, snap(d.origH + dy))) };
       }));
     };
     const up = () => { dragRef.current = null; };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, []);
+  }, [snapOn]); // eslint-disable-line
 
   const startMove = (el) => (e) => {
     e.preventDefault(); e.stopPropagation();
     setSelId(el.id);
-    dragRef.current = { id: el.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y };
+    pushHist();
+    dragRef.current = { id: el.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y, zoom };
   };
   const startResize = (el) => (e) => {
     e.preventDefault(); e.stopPropagation();
     setSelId(el.id);
-    dragRef.current = { id: el.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: el.w, origH: el.h };
+    pushHist();
+    dragRef.current = { id: el.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: el.w, origH: el.h, zoom };
   };
 
-  /* ---------- palette ---------- */
+  /* ---------- keyboard: nudge, delete, undo ---------- */
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if (!selId) return;
+      const step = e.shiftKey ? 10 : 1;
+      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (nudge) {
+        e.preventDefault();
+        setElements((els) => els.map((el) => (el.id === selId
+          ? { ...el, x: Math.max(0, Math.min(A4W - el.w, el.x + nudge[0])), y: Math.max(0, Math.min(815 - el.h, el.y + nudge[1])) }
+          : el)));
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); pushHist(); setElements((els) => els.filter((el) => el.id !== selId)); setSelId(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selId, elements]); // eslint-disable-line
+
+  /* ---------- palette / elements ---------- */
   const addElement = (kind, extra = {}, at) => {
+    pushHist();
     const el = { id: uid(), kind, x: at?.x ?? 40, y: at?.y ?? Math.min(740, 120 + elements.length * 8), align: 'left', color: kind === 'group' ? '#1e3a8a' : '#111827', bold: false, ...defaultsFor(kind), ...extra };
     if (kind === 'group') {
       const sec = sections.find((s) => s.id === extra.sectionId);
@@ -123,29 +159,62 @@ export default function Designer() {
     const raw = e.dataTransfer.getData('application/x-el');
     if (!raw) return;
     e.preventDefault();
-    const { kind, extra } = JSON.parse(raw);
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch { return; }
     const rect = canvasRef.current.getBoundingClientRect();
-    addElement(kind, extra, { x: snap(Math.max(0, e.clientX - rect.left - 60)), y: snap(Math.max(0, e.clientY - rect.top - 8)) });
+    addElement(parsed.kind, parsed.extra || {}, {
+      x: snap(Math.max(0, (e.clientX - rect.left) / zoom - 60)),
+      y: snap(Math.max(0, (e.clientY - rect.top) / zoom - 8)),
+    });
   };
 
   const update = (patch) => setElements((els) => els.map((el) => (el.id === selId ? { ...el, ...patch } : el)));
-  const removeSel = () => { setElements((els) => els.filter((el) => el.id !== selId)); setSelId(null); };
+  const removeSel = () => { pushHist(); setElements((els) => els.filter((el) => el.id !== selId)); setSelId(null); };
+  const duplicateSel = () => {
+    if (!sel) return;
+    pushHist();
+    const copy = { ...sel, id: uid(), x: Math.min(A4W - sel.w, sel.x + 12), y: Math.min(815 - sel.h, sel.y + 12) };
+    setElements((els) => [...els, copy]);
+    setSelId(copy.id);
+  };
+  const reorder = (dir) => {
+    pushHist();
+    setElements((els) => {
+      const i = els.findIndex((e) => e.id === selId);
+      if (i < 0) return els;
+      const a = [...els];
+      const [el] = a.splice(i, 1);
+      if (dir === 'front') a.push(el); else a.unshift(el);
+      return a;
+    });
+  };
+  const centerH = () => sel && update({ x: Math.round((A4W - sel.w) / 2) });
 
   const save = async () => {
     setMsg(null);
     try {
       const layout = { settings, elements: elements.map(({ id: _id, ...el }) => el) };
       await adminApi.post(`/templates/${id}/layout`, { layout });
-      setMsg({ type: 'ok', text: 'Layout saved. Set a form\'s PDF Design to "Custom" (Active Forms page) to use it.' });
-    } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); }
+      setMsg({ type: 'ok', text: 'Layout saved.' });
+      return true;
+    } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); return false; }
+  };
+
+  const preview = async () => {
+    if (!(await save())) return;
+    try {
+      const t = sessionStorage.getItem('adminToken');
+      const r = await fetch(`/api/admin/templates/${id}/preview-pdf`, { headers: { Authorization: `Bearer ${t}` } });
+      if (!r.ok) throw new Error('Preview failed');
+      const blob = await r.blob();
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (e) { setMsg({ type: 'err', text: e.message }); }
   };
 
   if (!template) return <div>{msg ? <div className={`alert ${msg.type}`}>{msg.text}</div> : 'Loading…'}</div>;
 
   const fieldLabel = (el) => (allFields.find((f) => f.id === el.fieldId)?.label || 'field');
-  const isOverEl = null;
 
-  /* ---------- group preview geometry (mirrors the PDF renderer) ---------- */
   const GroupPreview = ({ el }) => {
     const sec = sections.find((s) => s.id === el.sectionId);
     if (!sec) return <div className="muted">missing section</div>;
@@ -177,100 +246,100 @@ export default function Designer() {
       <div className="topbar">
         <div>
           <h1>PDF Layout Designer</h1>
-          <div className="muted">{template.name} — drag section blocks or single elements on the A4 page; resize from the corner; style from the toolbar.</div>
+          <div className="muted">{template.name} · arrows = nudge (Shift = ×10) · Delete = remove · Ctrl+Z = undo</div>
         </div>
-        <div>
-          <button className="btn ghost" onClick={() => navigate('/admin/templates')}>Back</button>{' '}
-          <button className="btn ghost" onClick={() => autoLayout(template)}>Reset Auto-Layout</button>{' '}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn ghost" onClick={() => navigate('/admin/templates')}>Back</button>
+          <button className="btn ghost" onClick={undo} title="Ctrl+Z">↩ Undo</button>
+          <button className="btn ghost" onClick={() => { pushHist(); autoLayout(template); }}>Reset Auto-Layout</button>
+          <button className="btn ghost" onClick={preview}>👁 Preview PDF</button>
           <button className="btn green" onClick={save}>Save Layout</button>
         </div>
       </div>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
 
-      <div className="card" style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', padding: '10px 16px' }}>
+      <div className="card dz-toolbar">
         <label className="check" style={{ margin: 0 }}>
           <input type="checkbox" checked={settings.showHeader} onChange={(e) => setSettings({ ...settings, showHeader: e.target.checked })} />
-          <b>Show school header</b> (logo + name)
+          <b>School header</b>
         </label>
         {!settings.showHeader && (
           <label className="check" style={{ margin: 0 }}>
-            Top space to leave (pre-printed letterhead):
-            <input type="number" value={settings.topSpace} min="0" max="300" style={{ width: 80, marginTop: 0 }}
+            Top space:
+            <input type="number" value={settings.topSpace} min="0" max="300" style={{ width: 74, marginTop: 0 }}
               onChange={(e) => setSettings({ ...settings, topSpace: Number(e.target.value) })} /> pt
           </label>
         )}
+        <span className="muted">|</span>
+        <label className="check" style={{ margin: 0 }}>Zoom
+          <select value={zoom} style={{ width: 84, marginTop: 0 }} onChange={(e) => setZoom(Number(e.target.value))}>
+            <option value={0.75}>75%</option><option value={1}>100%</option><option value={1.25}>125%</option><option value={1.5}>150%</option>
+          </select>
+        </label>
+        <label className="check" style={{ margin: 0 }}>
+          <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> snap to grid
+        </label>
+
+        {sel && (
+          <>
+            <span className="muted">|</span>
+            <b style={{ fontSize: 12.5 }}>
+              {sel.kind === 'group' ? `▤ ${(sections.find((s) => s.id === sel.sectionId) || {}).title}` : sel.kind === 'field' ? `🔤 ${fieldLabel(sel)}` : `▣ ${sel.kind}`}
+            </b>
+            <label className="check" style={{ margin: 0 }}>Font
+              <input type="number" min="5" max="30" value={sel.fontSize} style={{ width: 58, marginTop: 0 }} onChange={(e) => update({ fontSize: Number(e.target.value) })} />
+            </label>
+            <div style={{ display: 'flex', gap: 2 }}>
+              {['left', 'center', 'right'].map((a) => (
+                <button key={a} className={`btn small ${sel.align === a ? '' : 'ghost'}`} onClick={() => update({ align: a })}>{a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}</button>
+              ))}
+            </div>
+            <button className={`btn small ${sel.bold ? '' : 'ghost'}`} onClick={() => update({ bold: !sel.bold })}><b>B</b></button>
+            <input type="color" value={sel.color || '#111827'} style={{ marginTop: 0, width: 38, height: 29, padding: 2 }} onChange={(e) => update({ color: e.target.value })} />
+            {sel.kind === 'group' && (
+              <>
+                <select value={sel.cols || 1} style={{ width: 88, marginTop: 0 }} onChange={(e) => update({ cols: Number(e.target.value) })}>
+                  <option value={1}>1 column</option><option value={2}>2 columns</option><option value={3}>3 columns</option>
+                </select>
+                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.showLabels !== false} onChange={(e) => update({ showLabels: e.target.checked })} /> labels</label>
+                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.underline !== false} onChange={(e) => update({ underline: e.target.checked })} /> lines</label>
+              </>
+            )}
+            {sel.kind === 'field' && (
+              <>
+                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.showLabel !== false} onChange={(e) => update({ showLabel: e.target.checked })} /> label</label>
+                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={!!sel.underline} onChange={(e) => update({ underline: e.target.checked })} /> underline</label>
+              </>
+            )}
+            {(sel.kind === 'text' || sel.kind === 'signature' || sel.kind === 'group') && (
+              <input type="text" value={(sel.kind === 'group' ? sel.title : sel.text) || ''} style={{ marginTop: 0, width: 190 }}
+                placeholder={sel.kind === 'group' ? 'Custom heading' : sel.kind === 'text' ? '{{form_no}} {{class}} {{date}}…' : 'Caption'}
+                onChange={(e) => update(sel.kind === 'group' ? { title: e.target.value } : { text: e.target.value })} />
+            )}
+            <button className="btn small ghost" title="Duplicate" onClick={duplicateSel}>⧉</button>
+            <button className="btn small ghost" title="Bring to front" onClick={() => reorder('front')}>⬆̲</button>
+            <button className="btn small ghost" title="Send to back" onClick={() => reorder('back')}>⬇̲</button>
+            <button className="btn small ghost" title="Center horizontally" onClick={centerH}>⇔</button>
+            <span className="muted">x{sel.x} y{sel.y} · {sel.w}×{sel.h}</span>
+            <button className="btn small danger" onClick={removeSel}>✕</button>
+          </>
+        )}
       </div>
 
-      {sel && (
-        <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 16px' }}>
-          <b style={{ fontSize: 13 }}>
-            {sel.kind === 'group' ? `▤ Section: ${(sections.find((s) => s.id === sel.sectionId) || {}).title}`
-              : sel.kind === 'field' ? `🔤 ${fieldLabel(sel)}` : `▣ ${sel.kind}`}
-          </b>
-          <label className="check" style={{ margin: 0 }}>Font
-            <input type="number" min="5" max="30" value={sel.fontSize} style={{ width: 62, marginTop: 0 }} onChange={(e) => update({ fontSize: Number(e.target.value) })} />
-          </label>
-          <div style={{ display: 'flex', gap: 2 }}>
-            {['left', 'center', 'right'].map((a) => (
-              <button key={a} className={`btn small ${sel.align === a ? '' : 'ghost'}`} onClick={() => update({ align: a })} title={`Align ${a}`}>
-                {a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}
-              </button>
-            ))}
-          </div>
-          <button className={`btn small ${sel.bold ? '' : 'ghost'}`} onClick={() => update({ bold: !sel.bold })}><b>B</b></button>
-          <label className="check" style={{ margin: 0 }}>Color
-            <input type="color" value={sel.color || '#111827'} style={{ marginTop: 0, width: 42, height: 30, padding: 2 }} onChange={(e) => update({ color: e.target.value })} />
-          </label>
-          {sel.kind === 'group' && (
-            <>
-              <label className="check" style={{ margin: 0 }}>Columns
-                <select value={sel.cols || 1} style={{ width: 60, marginTop: 0 }} onChange={(e) => update({ cols: Number(e.target.value) })}>
-                  <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
-                </select>
-              </label>
-              <label className="check" style={{ margin: 0 }}>
-                <input type="checkbox" checked={sel.showLabels !== false} onChange={(e) => update({ showLabels: e.target.checked })} /> labels
-              </label>
-              <label className="check" style={{ margin: 0 }}>
-                <input type="checkbox" checked={sel.underline !== false} onChange={(e) => update({ underline: e.target.checked })} /> row lines
-              </label>
-              <input type="text" value={sel.title || ''} style={{ marginTop: 0, width: 200 }} placeholder="Custom section heading (optional)" onChange={(e) => update({ title: e.target.value })} />
-            </>
-          )}
-          {sel.kind === 'field' && (
-            <>
-              <label className="check" style={{ margin: 0 }}>
-                <input type="checkbox" checked={sel.showLabel !== false} onChange={(e) => update({ showLabel: e.target.checked })} /> label
-              </label>
-              <label className="check" style={{ margin: 0 }}>
-                <input type="checkbox" checked={!!sel.underline} onChange={(e) => update({ underline: e.target.checked })} /> underline
-              </label>
-            </>
-          )}
-          {(sel.kind === 'text' || sel.kind === 'signature') && (
-            <input type="text" value={sel.text || ''} style={{ marginTop: 0, width: 280 }} placeholder={sel.kind === 'text' ? 'Text — supports {{form_no}} {{class}} {{session}} {{date}}' : 'Caption'} onChange={(e) => update({ text: e.target.value })} />
-          )}
-          <span className="muted">x{sel.x} y{sel.y} · {sel.w}×{sel.h}</span>
-          <button className="btn small danger" onClick={removeSel}>Delete</button>
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        {/* two-pane palette: sections left, fields of selected section right */}
+        {/* palette: sections left → fields right */}
         <div className="card" style={{ width: 330, flexShrink: 0, padding: 10 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ width: 150, flexShrink: 0 }}>
-              <div className="drag-note" style={{ margin: '2px 0 6px' }}>SECTIONS — drag whole block</div>
-              <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+              <div className="drag-note" style={{ margin: '2px 0 6px' }}>SECTIONS — drag block</div>
+              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
                 {sections.map((s) => (
-                  <div
-                    key={s.id}
+                  <div key={s.id}
                     className={`pal-item ${palSec === s.id ? 'pal-active' : ''} ${usedSectionIds.has(s.id) ? 'used' : ''}`}
                     draggable
                     onDragStart={paletteDrag('group', { sectionId: s.id })}
                     onClick={() => setPalSec(s.id)}
-                    onDoubleClick={() => addElement('group', { sectionId: s.id })}
-                  >
+                    onDoubleClick={() => addElement('group', { sectionId: s.id })}>
                     {usedSectionIds.has(s.id) ? '✓ ' : ''}{s.title}
                     <div className="drag-note">{s.fields.length} fields</div>
                   </div>
@@ -278,10 +347,8 @@ export default function Designer() {
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div className="drag-note" style={{ margin: '2px 0 6px' }}>
-                {palSection ? `FIELDS IN “${palSection.title}”` : 'FIELDS'}
-              </div>
-              <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+              <div className="drag-note" style={{ margin: '2px 0 6px' }}>{palSection ? `FIELDS — ${palSection.title}` : 'FIELDS'}</div>
+              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
                 {(palSection?.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((f) => (
                   <div key={f.id} className={`pal-item ${usedFieldIds.has(f.id) ? 'used' : ''}`} draggable
                     onDragStart={paletteDrag('field', { fieldId: f.id })}
@@ -291,7 +358,7 @@ export default function Designer() {
                 ))}
                 {palSection && (
                   <button className="btn small ghost" style={{ width: '100%', marginTop: 4 }} onClick={() => addElement('group', { sectionId: palSection.id })}>
-                    + Add whole section as block
+                    + Whole section block
                   </button>
                 )}
               </div>
@@ -305,46 +372,50 @@ export default function Designer() {
           </div>
         </div>
 
-        {/* canvas */}
-        <div
-          ref={canvasRef}
-          className="design-canvas"
-          style={{ width: A4W, height: A4H }}
-          onMouseDown={() => setSelId(null)}
-          onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-el')) e.preventDefault(); }}
-          onDrop={canvasDrop}
-        >
-          {settings.showHeader ? (
-            <div className="dc-header">SCHOOL HEADER (logo + name prints here)</div>
-          ) : settings.topSpace > 0 ? (
-            <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt (pre-printed letterhead)</div>
-          ) : null}
-
-          {elements.map((el) => (
+        {/* workspace */}
+        <div className="dz-workspace">
+          <div style={{ width: A4W * zoom, height: A4H * zoom, margin: '0 auto' }}>
             <div
-              key={el.id}
-              className={`dc-el dc-${el.kind} ${selId === el.id ? 'sel' : ''}`}
-              style={{
-                left: el.x, top: el.y, width: el.w, height: el.h,
-                fontSize: Math.max(6, el.fontSize), textAlign: el.align,
-                color: el.color, fontWeight: el.bold && el.kind !== 'group' ? 700 : 400,
-              }}
-              onMouseDown={startMove(el)}
+              ref={canvasRef}
+              className="design-canvas"
+              style={{ width: A4W, height: A4H, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+              onMouseDown={() => setSelId(null)}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-el')) e.preventDefault(); }}
+              onDrop={canvasDrop}
             >
-              {el.kind === 'group' && <GroupPreview el={el} />}
-              {el.kind === 'field' && (
-                <>
-                  {el.showLabel !== false && <div className="dc-label">{fieldLabel(el)}</div>}
-                  <div className="dc-value" style={{ borderBottom: el.underline ? '1px solid #9ca3af' : 'none' }}>value…</div>
-                </>
-              )}
-              {el.kind === 'text' && <div>{el.text || 'Text…'}</div>}
-              {el.kind === 'line' && <div style={{ borderTop: `2px solid ${el.color}`, marginTop: 3 }} />}
-              {el.kind === 'photo' && <div className="dc-center muted">PHOTO</div>}
-              {el.kind === 'signature' && <div className="dc-center muted" style={{ borderBottom: '1px solid #111' }}>{el.text || 'Signature'}</div>}
-              {selId === el.id && <div className="dc-resize" onMouseDown={startResize(el)} />}
+              {settings.showHeader ? (
+                <div className="dc-header">SCHOOL HEADER (logo + name prints here)</div>
+              ) : settings.topSpace > 0 ? (
+                <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt</div>
+              ) : null}
+
+              {elements.map((el) => (
+                <div
+                  key={el.id}
+                  className={`dc-el dc-${el.kind} ${selId === el.id ? 'sel' : ''}`}
+                  style={{
+                    left: el.x, top: el.y, width: el.w, height: el.h,
+                    fontSize: Math.max(6, el.fontSize), textAlign: el.align,
+                    color: el.color, fontWeight: el.bold && el.kind !== 'group' ? 700 : 400,
+                  }}
+                  onMouseDown={startMove(el)}
+                >
+                  {el.kind === 'group' && <GroupPreview el={el} />}
+                  {el.kind === 'field' && (
+                    <>
+                      {el.showLabel !== false && <div className="dc-label">{fieldLabel(el)}</div>}
+                      <div className="dc-value" style={{ borderBottom: el.underline ? '1px solid #9ca3af' : 'none' }}>value…</div>
+                    </>
+                  )}
+                  {el.kind === 'text' && <div>{el.text || 'Text…'}</div>}
+                  {el.kind === 'line' && <div style={{ borderTop: `2px solid ${el.color}`, marginTop: 3 }} />}
+                  {el.kind === 'photo' && <div className="dc-center muted">PHOTO</div>}
+                  {el.kind === 'signature' && <div className="dc-center muted" style={{ borderBottom: '1px solid #111' }}>{el.text || 'Signature'}</div>}
+                  {selId === el.id && <div className="dc-resize" onMouseDown={startResize(el)} />}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </div>
