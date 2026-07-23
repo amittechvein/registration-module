@@ -21,6 +21,7 @@ import Designer from './admin/Designer.jsx';
 import Home from './public/Home.jsx';
 import FormPage from './public/FormPage.jsx';
 import TrackPage from './public/TrackPage.jsx';
+import GoogleDone from './public/GoogleDone.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -29,6 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/" element={<Home />} />
         <Route path="/form/:slug" element={<FormPage />} />
         <Route path="/track" element={<TrackPage />} />
+        <Route path="/google-done" element={<GoogleDone />} />
         <Route path="/admin/login" element={<Login />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />

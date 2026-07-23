@@ -3,11 +3,12 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const multer = require('multer');
 const {
-  sequelize, AcademicSession, ClassRoom,
+  sequelize, AcademicSession, ClassRoom, AdminUser,
   FormTemplate, FormSection, FormField, FormActivation, FormStatus,
   Applicant, Attachment, Submission, Payment, Communication, StatusLog,
 } = require('../models');
-const { sign, applicantAuth } = require('../middleware/auth');
+const { sign, verify, applicantAuth } = require('../middleware/auth');
+const { audit } = require('../services/audit');
 const { validateSubmission } = require('../services/validate');
 const { scoreSubmission, detectDuplicates } = require('../services/scoring');
 const payment = require('../services/payment');
@@ -79,7 +80,105 @@ router.get('/logo', (_req, res) => {
 router.get('/auth/config', async (_req, res) => {
   const { getConfig } = require('../services/settings');
   const cfg = await getConfig();
-  res.json({ googleClientId: cfg.GOOGLE_CLIENT_ID || null });
+  res.json({
+    googleClientId: cfg.GOOGLE_CLIENT_ID || null,
+    // With a client secret configured we use the reliable full-page redirect
+    // flow (no popups / third-party cookies). Without it, the JS button is used.
+    redirectFlow: !!(cfg.GOOGLE_CLIENT_ID && cfg.GOOGLE_CLIENT_SECRET),
+  });
+});
+
+// ---------- Google Sign-In via OAuth redirect flow (most reliable) ----------
+function baseUrl(req) {
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  return `${proto}://${req.get('host')}`;
+}
+
+// Step 1: browser is sent to Google's account chooser (full page, no popup)
+router.get('/auth/google/start', async (req, res) => {
+  const { getConfig } = require('../services/settings');
+  const cfg = await getConfig();
+  if (!cfg.GOOGLE_CLIENT_ID || !cfg.GOOGLE_CLIENT_SECRET) {
+    return res.status(400).send('Google login is not configured (Client ID + Client Secret needed in Settings)');
+  }
+  const role = req.query.role === 'admin' ? 'admin' : 'applicant';
+  let next = String(req.query.next || '');
+  if (!next.startsWith('/') || next.startsWith('//')) next = role === 'admin' ? '/admin' : '/';
+  const state = sign({ g: 1, role, next }); // signed → tamper-proof CSRF protection
+  const url = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id: cfg.GOOGLE_CLIENT_ID,
+    redirect_uri: baseUrl(req) + '/api/public/auth/google/callback',
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    prompt: 'select_account',
+  }).toString();
+  res.redirect(url);
+});
+
+// Step 2: Google redirects back here with a one-time code; we exchange it
+// server-to-server for the user's verified identity.
+router.get('/auth/google/callback', async (req, res) => {
+  const fail = (message) =>
+    res.redirect('/google-done#' + Buffer.from(JSON.stringify({ error: message })).toString('base64url'));
+  try {
+    const { getConfig } = require('../services/settings');
+    const cfg = await getConfig();
+    if (req.query.error) return fail('Google sign-in was cancelled (' + req.query.error + ')');
+    let st;
+    try { st = verify(String(req.query.state || '')); if (!st.g) throw new Error(); }
+    catch { return fail('Sign-in session expired — please try again'); }
+
+    // Exchange the code for tokens (requires the client secret; never exposed to the browser)
+    const tr = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(req.query.code || ''),
+        client_id: cfg.GOOGLE_CLIENT_ID,
+        client_secret: cfg.GOOGLE_CLIENT_SECRET,
+        redirect_uri: baseUrl(req) + '/api/public/auth/google/callback',
+        grant_type: 'authorization_code',
+      }).toString(),
+    });
+    const tokens = await tr.json();
+    if (!tr.ok || !tokens.id_token) {
+      console.error('[google] token exchange failed:', JSON.stringify(tokens).slice(0, 300));
+      return fail('Google verification failed: ' + (tokens.error_description || tokens.error || 'token exchange error'));
+    }
+    const vr = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(tokens.id_token));
+    const info = await vr.json();
+    if (!vr.ok || info.aud !== cfg.GOOGLE_CLIENT_ID || info.email_verified !== 'true') {
+      return fail('Google account could not be verified');
+    }
+
+    let payload;
+    if (st.role === 'admin') {
+      const user = await AdminUser.findOne({ where: { email: info.email } });
+      if (!user || !user.active) return fail(`No admin user exists for ${info.email}. Ask the owner to create one in Users.`);
+      let perms = {}; try { perms = JSON.parse(user.permissions || '{}'); } catch {}
+      await audit(req, 'login', { entity: 'AdminUser', entityId: user.id, summary: `${user.name} logged in (Google)`, actor: { id: user.id, name: user.name, type: 'admin' } });
+      payload = {
+        role: 'admin', next: st.next || '/admin',
+        token: sign({ role: 'admin', id: user.id, name: user.name, adminRole: user.role || 'owner', perms }),
+        name: user.name, adminRole: user.role || 'owner', perms,
+      };
+    } else {
+      let applicant = await Applicant.findOne({ where: { googleId: info.sub } });
+      if (!applicant) applicant = await Applicant.findOne({ where: { email: info.email } });
+      if (!applicant) applicant = await Applicant.create({ email: info.email, name: info.name || '', googleId: info.sub });
+      else await applicant.update({ googleId: info.sub, ...(applicant.name ? {} : { name: info.name || '' }) });
+      payload = {
+        role: 'applicant', next: st.next || '/',
+        token: sign({ role: 'applicant', id: applicant.id, phone: applicant.phone || '' }),
+        applicant: { id: applicant.id, phone: applicant.phone, name: applicant.name, email: applicant.email },
+      };
+    }
+    res.redirect('/google-done#' + Buffer.from(JSON.stringify(payload)).toString('base64url'));
+  } catch (e) {
+    console.error('[google] callback error:', e.message);
+    fail('Google sign-in failed: ' + e.message);
+  }
 });
 
 // Google sign-in for applicants (account auto-created from the Google email)

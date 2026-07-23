@@ -42,7 +42,7 @@ export default function Login() {
         </label>
         <button className="btn" style={{ width: '100%' }}>Sign in</button>
       </form>
-      <GoogleButton onCredential={google} />
+      <GoogleButton role="admin" onCredential={google} />
     </div>
     </div>
   );

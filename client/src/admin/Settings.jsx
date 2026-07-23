@@ -16,7 +16,7 @@ const GROUPS = [
   },
   {
     id: 'auth', title: 'Login Options (Google Sign-In)',
-    hint: 'Create an OAuth Client ID at console.cloud.google.com → APIs & Services → Credentials → Create Credentials → OAuth client ID → Web application, and add https://form.techvein.org to "Authorized JavaScript origins". Paste the Client ID here — a "Sign in with Google" button then appears on both the parent portal and admin login. Admin Google login only works for emails that exist in Users.',
+    hint: 'In console.cloud.google.com → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application): (1) under "Authorized redirect URIs" add https://form.techvein.org/api/public/auth/google/callback, (2) copy the Client ID AND the Client Secret and paste both below. With both saved, sign-in uses the reliable full-page redirect (no popups). Admin Google login only works for emails that exist in Users.',
   },
 ];
 

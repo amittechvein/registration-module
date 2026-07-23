@@ -5,6 +5,11 @@ function sign(payload) {
   return jwt.sign(payload, SECRET, { expiresIn: '7d' });
 }
 
+/** Verify a token signed with sign() — throws if invalid/expired. */
+function verify(token) {
+  return jwt.verify(token, SECRET);
+}
+
 function adminAuth(req, res, next) {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '');
@@ -40,4 +45,4 @@ function applicantAuth(req, res, next) {
   }
 }
 
-module.exports = { sign, adminAuth, applicantAuth, requirePerm };
+module.exports = { sign, verify, adminAuth, applicantAuth, requirePerm };

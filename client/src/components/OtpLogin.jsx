@@ -62,7 +62,7 @@ export default function OtpLogin({ onLoggedIn, askProfile = true }) {
             </label>
           </div>
           <button className="btn" disabled={busy || phone.length !== 10}>Send OTP</button>
-          <GoogleButton onCredential={google} />
+          <GoogleButton role="applicant" onCredential={google} />
         </form>
       )}
       {step === 2 && (
