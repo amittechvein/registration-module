@@ -3,18 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { adminApi, errMsg } from '../lib/api.js';
 
 /**
- * Visual PDF layout designer (A4, 1 canvas unit = 1 print point).
- * Sections are resizable blocks (fields reflow inside); plus single fields,
- * text, lines, boxes, photo & signature. Zoom, undo, keyboard nudge,
- * duplicate, layer order and live PDF preview included.
+ * Canva-style PDF layout designer (A4 · 1 canvas unit = 1 print point).
+ * 8-handle resize, smart alignment guides, floating context toolbar,
+ * double-click inline text editing, dark sidebar, zoom, undo, live preview.
  */
-const A4W = 595, A4H = 842;
+const A4W = 595, A4H = 842, MAXY = 820;
 const uid = () => 'e' + Math.random().toString(36).slice(2, 9);
+const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
 const defaultsFor = (kind) => ({
   group: { w: 265, h: 180, fontSize: 8, cols: 1, showLabels: true, underline: true, color: '#1e3a8a' },
   field: { w: 160, h: 26, fontSize: 8, showLabel: true },
-  text: { w: 180, h: 16, fontSize: 10, text: 'Text…' },
+  text: { w: 180, h: 18, fontSize: 11, text: 'Add your text' },
   line: { w: 200, h: 8, fontSize: 8 },
   box: { w: 120, h: 60, fontSize: 8 },
   photo: { w: 70, h: 85, fontSize: 8 },
@@ -28,31 +28,36 @@ export default function Designer() {
   const [elements, setElements] = useState([]);
   const [settings, setSettings] = useState({ showHeader: true, topSpace: 100 });
   const [selId, setSelId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [tab, setTab] = useState('sections');
   const [palSec, setPalSec] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [snapOn, setSnapOn] = useState(true);
+  const [guides, setGuides] = useState({ v: [], h: [] });
   const [msg, setMsg] = useState(null);
   const dragRef = useRef(null);
   const canvasRef = useRef(null);
   const histRef = useRef([]);
+  const elsRef = useRef(elements);
+  elsRef.current = elements;
 
   const GRID = 5;
-  const snap = (v) => (snapOn ? Math.round(v / GRID) * GRID : Math.round(v));
+  const gsnap = (v) => (snapOn ? Math.round(v / GRID) * GRID : Math.round(v));
 
   const sections = (template?.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
   const allFields = sections.flatMap((s) => (s.fields || []).map((f) => ({ ...f, sectionTitle: s.title })));
   const usedFieldIds = new Set(elements.filter((e) => e.kind === 'field').map((e) => e.fieldId));
   const usedSectionIds = new Set(elements.filter((e) => e.kind === 'group').map((e) => e.sectionId));
   const sel = elements.find((e) => e.id === selId);
-  const palSection = sections.find((s) => s.id === palSec);
+  const palSection = sections.find((s) => s.id === palSec) || sections[0];
 
   const pushHist = () => {
-    histRef.current.push(JSON.stringify(elements));
+    histRef.current.push(JSON.stringify(elsRef.current));
     if (histRef.current.length > 60) histRef.current.shift();
   };
   const undo = () => {
     const prev = histRef.current.pop();
-    if (prev) { setElements(JSON.parse(prev).map((e) => ({ ...e }))); setSelId(null); }
+    if (prev) { setElements(JSON.parse(prev)); setSelId(null); }
   };
 
   useEffect(() => {
@@ -86,61 +91,97 @@ export default function Designer() {
     setElements(els);
   };
 
-  /* ---------- move / resize (zoom-aware, ref captured per gesture) ---------- */
+  /* ------------------- move / resize with smart guides ------------------- */
   useEffect(() => {
     const move = (e) => {
       const d = dragRef.current;
       if (!d) return;
       const dx = (e.clientX - d.startX) / d.zoom, dy = (e.clientY - d.startY) / d.zoom;
-      setElements((els) => els.map((el) => {
-        if (el.id !== d.id) return el;
-        if (d.mode === 'move') {
-          return { ...el, x: Math.max(0, Math.min(A4W - el.w, snap(d.origX + dx))), y: Math.max(0, Math.min(815 - el.h, snap(d.origY + dy))) };
+      const others = elsRef.current.filter((o) => o.id !== d.id);
+      const el = elsRef.current.find((o) => o.id === d.id);
+      if (!el) return;
+
+      if (d.mode === 'move') {
+        let nx = d.origX + dx, ny = d.origY + dy;
+        // smart guides: snap edges/centers to page + other elements (Canva style)
+        const TH = 4;
+        const vCand = [0, A4W, A4W / 2, ...others.flatMap((o) => [o.x, o.x + o.w, o.x + o.w / 2])];
+        const hCand = [0, MAXY, ...others.flatMap((o) => [o.y, o.y + o.h, o.y + o.h / 2])];
+        let gv = null, gh = null, bestV = TH + 1, bestH = TH + 1;
+        for (const c of vCand) for (const off of [0, el.w / 2, el.w]) {
+          const diff = c - (nx + off);
+          if (Math.abs(diff) < bestV) { bestV = Math.abs(diff); if (bestV <= TH) { nx += diff; gv = c; } }
         }
-        return { ...el, w: Math.max(30, Math.min(A4W - el.x, snap(d.origW + dx))), h: Math.max(10, Math.min(820 - el.y, snap(d.origH + dy))) };
-      }));
+        for (const c of hCand) for (const off of [0, el.h / 2, el.h]) {
+          const diff = c - (ny + off);
+          if (Math.abs(diff) < bestH) { bestH = Math.abs(diff); if (bestH <= TH) { ny += diff; gh = c; } }
+        }
+        if (gv == null) nx = gsnap(nx);
+        if (gh == null) ny = gsnap(ny);
+        nx = Math.max(0, Math.min(A4W - el.w, Math.round(nx)));
+        ny = Math.max(0, Math.min(MAXY - el.h, Math.round(ny)));
+        setGuides({ v: gv != null ? [gv] : [], h: gh != null ? [gh] : [] });
+        setElements((els) => els.map((o) => (o.id === d.id ? { ...o, x: nx, y: ny } : o)));
+      } else {
+        // 8-handle resize
+        let x = d.origX, y = d.origY, w = d.origW, h = d.origH;
+        if (d.handle.includes('e')) w = d.origW + dx;
+        if (d.handle.includes('w')) { x = d.origX + dx; w = d.origW - dx; }
+        if (d.handle.includes('s')) h = d.origH + dy;
+        if (d.handle.includes('n')) { y = d.origY + dy; h = d.origH - dy; }
+        if (w < 20) { if (d.handle.includes('w')) x = d.origX + d.origW - 20; w = 20; }
+        if (h < 10) { if (d.handle.includes('n')) y = d.origY + d.origH - 10; h = 10; }
+        if (x < 0) { w += x; x = 0; }
+        if (y < 0) { h += y; y = 0; }
+        w = Math.min(w, A4W - x); h = Math.min(h, MAXY - y);
+        x = gsnap(x); y = gsnap(y); w = gsnap(w); h = gsnap(h);
+        setElements((els) => els.map((o) => (o.id === d.id ? { ...o, x, y, w: Math.max(20, w), h: Math.max(10, h) } : o)));
+      }
     };
-    const up = () => { dragRef.current = null; };
+    const up = () => { dragRef.current = null; setGuides({ v: [], h: [] }); };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [snapOn]); // eslint-disable-line
 
   const startMove = (el) => (e) => {
+    if (editingId === el.id) return;
     e.preventDefault(); e.stopPropagation();
-    setSelId(el.id);
+    setSelId(el.id); setEditingId(null);
     pushHist();
     dragRef.current = { id: el.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y, zoom };
   };
-  const startResize = (el) => (e) => {
+  const startResize = (el, handle) => (e) => {
     e.preventDefault(); e.stopPropagation();
     setSelId(el.id);
     pushHist();
-    dragRef.current = { id: el.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: el.w, origH: el.h, zoom };
+    dragRef.current = { id: el.id, mode: 'resize', handle, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, zoom };
   };
 
-  /* ---------- keyboard: nudge, delete, undo ---------- */
+  /* ---------------------------- keyboard ---------------------------- */
   useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSel(); return; }
       if (!selId) return;
       const step = e.shiftKey ? 10 : 1;
       const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
       if (nudge) {
         e.preventDefault();
         setElements((els) => els.map((el) => (el.id === selId
-          ? { ...el, x: Math.max(0, Math.min(A4W - el.w, el.x + nudge[0])), y: Math.max(0, Math.min(815 - el.h, el.y + nudge[1])) }
+          ? { ...el, x: Math.max(0, Math.min(A4W - el.w, el.x + nudge[0])), y: Math.max(0, Math.min(MAXY - el.h, el.y + nudge[1])) }
           : el)));
       }
-      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); pushHist(); setElements((els) => els.filter((el) => el.id !== selId)); setSelId(null); }
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSel(); }
+      if (e.key === 'Escape') setSelId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selId, elements]); // eslint-disable-line
+  }, [selId]); // eslint-disable-line
 
-  /* ---------- palette / elements ---------- */
+  /* ---------------------------- palette ---------------------------- */
   const addElement = (kind, extra = {}, at) => {
     pushHist();
     const el = { id: uid(), kind, x: at?.x ?? 40, y: at?.y ?? Math.min(740, 120 + elements.length * 8), align: 'left', color: kind === 'group' ? '#1e3a8a' : '#111827', bold: false, ...defaultsFor(kind), ...extra };
@@ -163,17 +204,18 @@ export default function Designer() {
     try { parsed = JSON.parse(raw); } catch { return; }
     const rect = canvasRef.current.getBoundingClientRect();
     addElement(parsed.kind, parsed.extra || {}, {
-      x: snap(Math.max(0, (e.clientX - rect.left) / zoom - 60)),
-      y: snap(Math.max(0, (e.clientY - rect.top) / zoom - 8)),
+      x: gsnap(Math.max(0, (e.clientX - rect.left) / zoom - 60)),
+      y: gsnap(Math.max(0, (e.clientY - rect.top) / zoom - 8)),
     });
   };
 
   const update = (patch) => setElements((els) => els.map((el) => (el.id === selId ? { ...el, ...patch } : el)));
   const removeSel = () => { pushHist(); setElements((els) => els.filter((el) => el.id !== selId)); setSelId(null); };
   const duplicateSel = () => {
-    if (!sel) return;
+    const s = elsRef.current.find((e) => e.id === selId);
+    if (!s) return;
     pushHist();
-    const copy = { ...sel, id: uid(), x: Math.min(A4W - sel.w, sel.x + 12), y: Math.min(815 - sel.h, sel.y + 12) };
+    const copy = { ...s, id: uid(), x: Math.min(A4W - s.w, s.x + 12), y: Math.min(MAXY - s.h, s.y + 12) };
     setElements((els) => [...els, copy]);
     setSelId(copy.id);
   };
@@ -188,7 +230,6 @@ export default function Designer() {
       return a;
     });
   };
-  const centerH = () => sel && update({ x: Math.round((A4W - sel.w) / 2) });
 
   const save = async () => {
     setMsg(null);
@@ -199,15 +240,13 @@ export default function Designer() {
       return true;
     } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); return false; }
   };
-
   const preview = async () => {
     if (!(await save())) return;
     try {
       const t = sessionStorage.getItem('adminToken');
       const r = await fetch(`/api/admin/templates/${id}/preview-pdf`, { headers: { Authorization: `Bearer ${t}` } });
       if (!r.ok) throw new Error('Preview failed');
-      const blob = await r.blob();
-      window.open(URL.createObjectURL(blob), '_blank');
+      window.open(URL.createObjectURL(await r.blob()), '_blank');
     } catch (e) { setMsg({ type: 'err', text: e.message }); }
   };
 
@@ -241,19 +280,25 @@ export default function Designer() {
     );
   };
 
+  const SIDEBAR_TABS = [
+    { key: 'sections', icon: '▤', label: 'Sections' },
+    { key: 'fields', icon: '🔤', label: 'Fields' },
+    { key: 'elements', icon: '✚', label: 'Elements' },
+  ];
+
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>PDF Layout Designer</h1>
-          <div className="muted">{template.name} · arrows = nudge (Shift = ×10) · Delete = remove · Ctrl+Z = undo</div>
+          <div className="muted">{template.name} · double-click text to edit · arrows nudge · Ctrl+Z undo · Ctrl+D duplicate</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn ghost" onClick={() => navigate('/admin/templates')}>Back</button>
-          <button className="btn ghost" onClick={undo} title="Ctrl+Z">↩ Undo</button>
-          <button className="btn ghost" onClick={() => { pushHist(); autoLayout(template); }}>Reset Auto-Layout</button>
-          <button className="btn ghost" onClick={preview}>👁 Preview PDF</button>
-          <button className="btn green" onClick={save}>Save Layout</button>
+          <button className="btn ghost" onClick={undo}>↩ Undo</button>
+          <button className="btn ghost" onClick={() => { pushHist(); autoLayout(template); }}>Auto-Layout</button>
+          <button className="btn ghost" onClick={preview}>👁 Preview</button>
+          <button className="btn green" onClick={save}>Save</button>
         </div>
       </div>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
@@ -270,116 +315,77 @@ export default function Designer() {
               onChange={(e) => setSettings({ ...settings, topSpace: Number(e.target.value) })} /> pt
           </label>
         )}
-        <span className="muted">|</span>
-        <label className="check" style={{ margin: 0 }}>Zoom
-          <select value={zoom} style={{ width: 84, marginTop: 0 }} onChange={(e) => setZoom(Number(e.target.value))}>
-            <option value={0.75}>75%</option><option value={1}>100%</option><option value={1.25}>125%</option><option value={1.5}>150%</option>
-          </select>
-        </label>
         <label className="check" style={{ margin: 0 }}>
-          <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> snap to grid
+          <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> snap
         </label>
-
-        {sel && (
-          <>
-            <span className="muted">|</span>
-            <b style={{ fontSize: 12.5 }}>
-              {sel.kind === 'group' ? `▤ ${(sections.find((s) => s.id === sel.sectionId) || {}).title}` : sel.kind === 'field' ? `🔤 ${fieldLabel(sel)}` : `▣ ${sel.kind}`}
-            </b>
-            <label className="check" style={{ margin: 0 }}>Font
-              <input type="number" min="5" max="30" value={sel.fontSize} style={{ width: 58, marginTop: 0 }} onChange={(e) => update({ fontSize: Number(e.target.value) })} />
-            </label>
-            <div style={{ display: 'flex', gap: 2 }}>
-              {['left', 'center', 'right'].map((a) => (
-                <button key={a} className={`btn small ${sel.align === a ? '' : 'ghost'}`} onClick={() => update({ align: a })}>{a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}</button>
-              ))}
-            </div>
-            <button className={`btn small ${sel.bold ? '' : 'ghost'}`} onClick={() => update({ bold: !sel.bold })}><b>B</b></button>
-            <input type="color" value={sel.color || '#111827'} style={{ marginTop: 0, width: 38, height: 29, padding: 2 }} onChange={(e) => update({ color: e.target.value })} />
-            {sel.kind === 'group' && (
-              <>
-                <select value={sel.cols || 1} style={{ width: 88, marginTop: 0 }} onChange={(e) => update({ cols: Number(e.target.value) })}>
-                  <option value={1}>1 column</option><option value={2}>2 columns</option><option value={3}>3 columns</option>
-                </select>
-                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.showLabels !== false} onChange={(e) => update({ showLabels: e.target.checked })} /> labels</label>
-                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.underline !== false} onChange={(e) => update({ underline: e.target.checked })} /> lines</label>
-              </>
-            )}
-            {sel.kind === 'field' && (
-              <>
-                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={sel.showLabel !== false} onChange={(e) => update({ showLabel: e.target.checked })} /> label</label>
-                <label className="check" style={{ margin: 0 }}><input type="checkbox" checked={!!sel.underline} onChange={(e) => update({ underline: e.target.checked })} /> underline</label>
-              </>
-            )}
-            {(sel.kind === 'text' || sel.kind === 'signature' || sel.kind === 'group') && (
-              <input type="text" value={(sel.kind === 'group' ? sel.title : sel.text) || ''} style={{ marginTop: 0, width: 190 }}
-                placeholder={sel.kind === 'group' ? 'Custom heading' : sel.kind === 'text' ? '{{form_no}} {{class}} {{date}}…' : 'Caption'}
-                onChange={(e) => update(sel.kind === 'group' ? { title: e.target.value } : { text: e.target.value })} />
-            )}
-            <button className="btn small ghost" title="Duplicate" onClick={duplicateSel}>⧉</button>
-            <button className="btn small ghost" title="Bring to front" onClick={() => reorder('front')}>⬆̲</button>
-            <button className="btn small ghost" title="Send to back" onClick={() => reorder('back')}>⬇̲</button>
-            <button className="btn small ghost" title="Center horizontally" onClick={centerH}>⇔</button>
-            <span className="muted">x{sel.x} y{sel.y} · {sel.w}×{sel.h}</span>
-            <button className="btn small danger" onClick={removeSel}>✕</button>
-          </>
-        )}
+        <span className="muted" style={{ marginLeft: 'auto' }}>
+          {sel ? `Selected: ${sel.kind === 'group' ? (sections.find((s) => s.id === sel.sectionId) || {}).title : sel.kind === 'field' ? fieldLabel(sel) : sel.kind} · x${sel.x} y${sel.y} · ${sel.w}×${sel.h}` : 'Click an element to style it — a toolbar appears above it'}
+        </span>
       </div>
 
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        {/* palette: sections left → fields right */}
-        <div className="card" style={{ width: 330, flexShrink: 0, padding: 10 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ width: 150, flexShrink: 0 }}>
-              <div className="drag-note" style={{ margin: '2px 0 6px' }}>SECTIONS — drag block</div>
-              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-                {sections.map((s) => (
-                  <div key={s.id}
-                    className={`pal-item ${palSec === s.id ? 'pal-active' : ''} ${usedSectionIds.has(s.id) ? 'used' : ''}`}
-                    draggable
-                    onDragStart={paletteDrag('group', { sectionId: s.id })}
-                    onClick={() => setPalSec(s.id)}
-                    onDoubleClick={() => addElement('group', { sectionId: s.id })}>
-                    {usedSectionIds.has(s.id) ? '✓ ' : ''}{s.title}
-                    <div className="drag-note">{s.fields.length} fields</div>
-                  </div>
-                ))}
-              </div>
+      <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+        {/* Canva-style dark sidebar */}
+        <div className="cv-rail">
+          {SIDEBAR_TABS.map((t) => (
+            <div key={t.key} className={`cv-tab ${tab === t.key ? 'on' : ''}`} onClick={() => setTab(t.key)}>
+              <div className="cv-ico">{t.icon}</div>
+              <div className="cv-lbl">{t.label}</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div className="drag-note" style={{ margin: '2px 0 6px' }}>{palSection ? `FIELDS — ${palSection.title}` : 'FIELDS'}</div>
-              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-                {(palSection?.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((f) => (
-                  <div key={f.id} className={`pal-item ${usedFieldIds.has(f.id) ? 'used' : ''}`} draggable
-                    onDragStart={paletteDrag('field', { fieldId: f.id })}
-                    onClick={() => addElement('field', { fieldId: f.id })}>
-                    {usedFieldIds.has(f.id) ? '✓ ' : ''}{f.label}
-                  </div>
-                ))}
-                {palSection && (
-                  <button className="btn small ghost" style={{ width: '100%', marginTop: 4 }} onClick={() => addElement('group', { sectionId: palSection.id })}>
-                    + Whole section block
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="drag-note" style={{ margin: '10px 0 6px' }}>OTHER ELEMENTS</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {[['text', '📝 Text'], ['line', '━ Line'], ['box', '▭ Box'], ['photo', '🖼 Photo'], ['signature', '✍ Signature']].map(([k, label]) => (
-              <div key={k} className="pal-item" style={{ marginBottom: 0 }} draggable onDragStart={paletteDrag(k)} onClick={() => addElement(k)}>{label}</div>
-            ))}
-          </div>
+          ))}
+        </div>
+        <div className="cv-panel">
+          {tab === 'sections' && (
+            <>
+              <div className="cv-title">Section blocks</div>
+              <div className="cv-hint">Drag a whole section onto the page — resize it and the fields reflow inside.</div>
+              {sections.map((s) => (
+                <div key={s.id} className={`cv-item ${usedSectionIds.has(s.id) ? 'used' : ''}`} draggable
+                  onDragStart={paletteDrag('group', { sectionId: s.id })}
+                  onClick={() => addElement('group', { sectionId: s.id })}>
+                  <b>{s.title}</b>
+                  <span>{s.fields.length} fields {usedSectionIds.has(s.id) ? '· on page ✓' : ''}</span>
+                </div>
+              ))}
+            </>
+          )}
+          {tab === 'fields' && (
+            <>
+              <div className="cv-title">Single fields</div>
+              <select value={palSection?.id || ''} style={{ marginBottom: 8 }} onChange={(e) => setPalSec(Number(e.target.value))}>
+                {sections.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+              </select>
+              {(palSection?.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((f) => (
+                <div key={f.id} className={`cv-item ${usedFieldIds.has(f.id) ? 'used' : ''}`} draggable
+                  onDragStart={paletteDrag('field', { fieldId: f.id })}
+                  onClick={() => addElement('field', { fieldId: f.id })}>
+                  <b>{f.label}</b>
+                  <span>{f.fieldType}{usedFieldIds.has(f.id) ? ' · on page ✓' : ''}</span>
+                </div>
+              ))}
+            </>
+          )}
+          {tab === 'elements' && (
+            <>
+              <div className="cv-title">Design elements</div>
+              {[['text', '📝', 'Text / heading'], ['line', '━', 'Divider line'], ['box', '▭', 'Box / border'], ['photo', '🖼', 'Student photo'], ['signature', '✍', 'Signature']].map(([k, ico, label]) => (
+                <div key={k} className="cv-item" draggable onDragStart={paletteDrag(k)} onClick={() => addElement(k)}>
+                  <b>{ico} {label}</b>
+                  <span>drag or click to add</span>
+                </div>
+              ))}
+              <div className="cv-hint" style={{ marginTop: 8 }}>Text supports {'{{form_no}} {{class}} {{session}} {{date}}'}</div>
+            </>
+          )}
         </div>
 
         {/* workspace */}
-        <div className="dz-workspace">
-          <div style={{ width: A4W * zoom, height: A4H * zoom, margin: '0 auto' }}>
+        <div className="dz-workspace cv-workspace">
+          <div style={{ width: A4W * zoom, height: A4H * zoom, margin: '0 auto', position: 'relative' }}>
             <div
               ref={canvasRef}
               className="design-canvas"
               style={{ width: A4W, height: A4H, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-              onMouseDown={() => setSelId(null)}
+              onMouseDown={() => { setSelId(null); setEditingId(null); }}
               onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-el')) e.preventDefault(); }}
               onDrop={canvasDrop}
             >
@@ -388,6 +394,9 @@ export default function Designer() {
               ) : settings.topSpace > 0 ? (
                 <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt</div>
               ) : null}
+
+              {guides.v.map((g, i) => <div key={'v' + i} className="cv-guide-v" style={{ left: g }} />)}
+              {guides.h.map((g, i) => <div key={'h' + i} className="cv-guide-h" style={{ top: g }} />)}
 
               {elements.map((el) => (
                 <div
@@ -399,6 +408,7 @@ export default function Designer() {
                     color: el.color, fontWeight: el.bold && el.kind !== 'group' ? 700 : 400,
                   }}
                   onMouseDown={startMove(el)}
+                  onDoubleClick={(e) => { if (el.kind === 'text' || el.kind === 'signature') { e.stopPropagation(); setEditingId(el.id); setSelId(el.id); } }}
                 >
                   {el.kind === 'group' && <GroupPreview el={el} />}
                   {el.kind === 'field' && (
@@ -407,14 +417,76 @@ export default function Designer() {
                       <div className="dc-value" style={{ borderBottom: el.underline ? '1px solid #9ca3af' : 'none' }}>value…</div>
                     </>
                   )}
-                  {el.kind === 'text' && <div>{el.text || 'Text…'}</div>}
+                  {(el.kind === 'text' || el.kind === 'signature') && (
+                    editingId === el.id ? (
+                      <div
+                        contentEditable
+                        suppressContentEditableWarning
+                        autoFocus
+                        className="cv-editing"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onBlur={(e) => { update({ text: e.target.textContent }); setEditingId(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+                      >
+                        {el.text}
+                      </div>
+                    ) : el.kind === 'text' ? (
+                      <div>{el.text || 'Add your text'}</div>
+                    ) : (
+                      <div className="dc-center muted" style={{ borderBottom: '1px solid #111' }}>{el.text || 'Signature'}</div>
+                    )
+                  )}
                   {el.kind === 'line' && <div style={{ borderTop: `2px solid ${el.color}`, marginTop: 3 }} />}
                   {el.kind === 'photo' && <div className="dc-center muted">PHOTO</div>}
-                  {el.kind === 'signature' && <div className="dc-center muted" style={{ borderBottom: '1px solid #111' }}>{el.text || 'Signature'}</div>}
-                  {selId === el.id && <div className="dc-resize" onMouseDown={startResize(el)} />}
+                  {selId === el.id && HANDLES.map((h) => (
+                    <div key={h} className={`cv-h cv-h-${h}`} onMouseDown={startResize(el, h)} />
+                  ))}
                 </div>
               ))}
             </div>
+
+            {/* floating context toolbar (Canva-style) */}
+            {sel && !editingId && (
+              <div
+                className="cv-float"
+                style={{
+                  left: Math.max(120, Math.min(A4W * zoom - 120, (sel.x + sel.w / 2) * zoom)),
+                  top: Math.max(4, sel.y * zoom - 46),
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button onClick={() => update({ fontSize: Math.max(5, sel.fontSize - 1) })} title="Smaller">A−</button>
+                <span className="cv-fs">{sel.fontSize}</span>
+                <button onClick={() => update({ fontSize: Math.min(30, sel.fontSize + 1) })} title="Bigger">A+</button>
+                <button className={sel.bold ? 'on' : ''} onClick={() => update({ bold: !sel.bold })}><b>B</b></button>
+                <button onClick={() => update({ align: sel.align === 'left' ? 'center' : sel.align === 'center' ? 'right' : 'left' })} title="Alignment">
+                  {sel.align === 'center' ? '↔' : sel.align === 'right' ? '➡' : '⬅'}
+                </button>
+                <label className="cv-color" title="Color">
+                  <span style={{ background: sel.color }} />
+                  <input type="color" value={sel.color || '#111827'} onChange={(e) => update({ color: e.target.value })} />
+                </label>
+                {sel.kind === 'group' && (
+                  <select value={sel.cols || 1} onChange={(e) => update({ cols: Number(e.target.value) })}>
+                    <option value={1}>1 col</option><option value={2}>2 col</option><option value={3}>3 col</option>
+                  </select>
+                )}
+                {sel.kind === 'group' && <button className={sel.showLabels !== false ? 'on' : ''} onClick={() => update({ showLabels: sel.showLabels === false })} title="Field labels">🏷</button>}
+                {sel.kind === 'field' && <button className={sel.showLabel !== false ? 'on' : ''} onClick={() => update({ showLabel: sel.showLabel === false })} title="Label">🏷</button>}
+                <button onClick={duplicateSel} title="Duplicate (Ctrl+D)">⧉</button>
+                <button onClick={() => reorder('front')} title="Bring to front">▲</button>
+                <button onClick={() => reorder('back')} title="Send to back">▼</button>
+                <button onClick={() => update({ x: Math.round((A4W - sel.w) / 2) })} title="Center on page">⇔</button>
+                <button className="danger" onClick={removeSel} title="Delete">🗑</button>
+              </div>
+            )}
+          </div>
+
+          {/* floating zoom control */}
+          <div className="cv-zoom">
+            <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}>−</button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.25) * 100) / 100))}>+</button>
           </div>
         </div>
       </div>

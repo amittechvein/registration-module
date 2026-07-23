@@ -154,6 +154,62 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-c
 .dc-el.dc-group { background: rgba(255,255,255,.6); }
 .dz-toolbar { position: sticky; top: 0; z-index: 20; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 9px 14px; box-shadow: 0 3px 10px rgba(15,23,42,.06); }
 .dz-workspace { flex: 1; background: #dde3ec; border-radius: 12px; padding: 22px 10px; overflow: auto; max-height: 88vh; }
+
+/* Canva-style designer chrome */
+.cv-rail { width: 72px; flex-shrink: 0; background: #0f1a33; border-radius: 12px 0 0 12px; padding: 10px 0; display: flex; flex-direction: column; gap: 4px; }
+.cv-tab { text-align: center; color: #94a3b8; padding: 10px 4px; cursor: pointer; border-left: 3px solid transparent; }
+.cv-tab:hover { color: #e2e8f0; }
+.cv-tab.on { color: #fff; border-left-color: #3b82f6; background: rgba(59,130,246,.12); }
+.cv-ico { font-size: 20px; }
+.cv-lbl { font-size: 10px; margin-top: 3px; }
+.cv-panel { width: 250px; flex-shrink: 0; background: #16223f; padding: 14px 12px; overflow-y: auto; max-height: 88vh; }
+.cv-title { color: #fff; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.cv-hint { color: #8fa3c8; font-size: 11.5px; margin-bottom: 10px; line-height: 1.4; }
+.cv-item { background: #1e2c4f; border: 1px solid #2c3d68; border-radius: 9px; padding: 8px 10px; margin-bottom: 7px; cursor: grab; }
+.cv-item:hover { border-color: #3b82f6; background: #24335c; }
+.cv-item.used { opacity: .55; }
+.cv-item b { display: block; color: #e8eefc; font-size: 12.5px; }
+.cv-item span { color: #8fa3c8; font-size: 10.5px; }
+.cv-panel select { background: #1e2c4f; color: #e8eefc; border-color: #2c3d68; }
+.cv-workspace { border-radius: 0 12px 12px 0; background: #2b3446; position: relative; }
+
+/* selection handles (8) */
+.cv-h { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.6px solid #2563eb; border-radius: 50%; z-index: 7; }
+.cv-h-nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.cv-h-n  { left: calc(50% - 4.5px); top: -5px; cursor: ns-resize; }
+.cv-h-ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.cv-h-e  { right: -5px; top: calc(50% - 4.5px); cursor: ew-resize; }
+.cv-h-se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.cv-h-s  { left: calc(50% - 4.5px); bottom: -5px; cursor: ns-resize; }
+.cv-h-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.cv-h-w  { left: -5px; top: calc(50% - 4.5px); cursor: ew-resize; }
+
+/* smart alignment guides */
+.cv-guide-v { position: absolute; top: 0; bottom: 0; width: 1px; background: #ec4899; z-index: 9; pointer-events: none; }
+.cv-guide-h { position: absolute; left: 0; right: 0; height: 1px; background: #ec4899; z-index: 9; pointer-events: none; }
+
+/* floating context toolbar */
+.cv-float { position: absolute; transform: translateX(-50%); display: flex; align-items: center; gap: 3px; background: #fff; border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(15,23,42,.28); padding: 5px 7px; z-index: 30; white-space: nowrap; }
+.cv-float button { border: none; background: transparent; border-radius: 6px; padding: 5px 8px; font-size: 13px; cursor: pointer; color: #1f2937; }
+.cv-float button:hover { background: #eef2f7; }
+.cv-float button.on { background: #dbeafe; color: #1d4ed8; }
+.cv-float button.danger { color: #dc2626; }
+.cv-float .cv-fs { font-size: 12px; font-weight: 700; min-width: 20px; text-align: center; }
+.cv-float select { margin: 0; padding: 4px 6px; font-size: 12px; width: auto; }
+.cv-float .cv-color { position: relative; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); overflow: hidden; cursor: pointer; display: block; }
+.cv-float .cv-color span { position: absolute; inset: 3px; border-radius: 4px; }
+.cv-float .cv-color input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* inline text editing */
+.cv-editing { outline: 2px solid #2563eb; border-radius: 3px; background: #fff; min-height: 1em; cursor: text; }
+
+/* floating zoom */
+.cv-zoom { position: sticky; bottom: 10px; margin-left: auto; margin-right: 8px; width: max-content; display: flex; align-items: center; gap: 6px;
+  background: #fff; border-radius: 999px; box-shadow: 0 4px 14px rgba(15,23,42,.25); padding: 4px 8px; z-index: 25; }
+.cv-zoom button { border: none; background: transparent; font-size: 16px; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; }
+.cv-zoom button:hover { background: #eef2f7; }
+.cv-zoom span { font-size: 12px; font-weight: 700; min-width: 42px; text-align: center; }
 .design-canvas { position: relative; background: #fff; border: 1px solid #cbd5e1; box-shadow: 0 2px 14px rgba(15,23,42,.12); flex-shrink: 0;
   background-image: linear-gradient(#f1f5f9 1px, transparent 1px), linear-gradient(90deg, #f1f5f9 1px, transparent 1px);
   background-size: 25px 25px; overflow: hidden; }
