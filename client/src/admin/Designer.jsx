@@ -19,6 +19,7 @@ const defaultsFor = (kind) => ({
   box: { w: 120, h: 60, fontSize: 8 },
   photo: { w: 70, h: 85, fontSize: 8 },
   signature: { w: 130, h: 45, fontSize: 8, text: "Parent's Signature" },
+  payment: { w: 265, h: 76, fontSize: 8, color: '#14532d', text: 'PAYMENT DETAILS' },
 }[kind]);
 
 export default function Designer() {
@@ -257,6 +258,20 @@ export default function Designer() {
     setMsg({ type: 'ok', text: `Ungrouped "${sec.title}" — every field is now individually adjustable.` });
   };
 
+  /** Master colors: recolor the whole layout in one click. */
+  const applyMasterColors = (primary, secondary) => {
+    pushHist();
+    setSettings((st) => ({ ...st, colors: { primary, secondary }, header: { ...(st.header || {}), nameColor: primary } }));
+    setElements((els) => els.map((el) => {
+      if (el.kind === 'group') return { ...el, color: primary };
+      if (el.kind === 'text' && el.bold) return { ...el, color: primary };
+      if (el.kind === 'line' || el.kind === 'box') return { ...el, color: secondary };
+      if (el.kind === 'payment') return { ...el, color: secondary };
+      return el;
+    }));
+    setMsg({ type: 'ok', text: 'Colors applied to the whole layout — headings & sections use Primary; lines, boxes & payment use Secondary.' });
+  };
+
   const uploadLogo = async (file) => {
     if (!file) return;
     try {
@@ -373,6 +388,19 @@ export default function Designer() {
         <label className="check" style={{ margin: 0 }}>
           <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> snap
         </label>
+        <span className="muted">|</span>
+        <b style={{ fontSize: 12.5 }}>🎨 Master colors</b>
+        <label className="check" style={{ margin: 0 }}>Primary
+          <input type="color" value={settings.colors?.primary || '#1e3a8a'} style={{ width: 38, height: 29, padding: 2, marginTop: 0 }}
+            onChange={(e) => setSettings((st) => ({ ...st, colors: { ...(st.colors || {}), primary: e.target.value } }))} />
+        </label>
+        <label className="check" style={{ margin: 0 }}>Secondary
+          <input type="color" value={settings.colors?.secondary || '#14532d'} style={{ width: 38, height: 29, padding: 2, marginTop: 0 }}
+            onChange={(e) => setSettings((st) => ({ ...st, colors: { ...(st.colors || {}), secondary: e.target.value } }))} />
+        </label>
+        <button className="btn small" onClick={() => applyMasterColors(settings.colors?.primary || '#1e3a8a', settings.colors?.secondary || '#14532d')}>
+          Apply to layout
+        </button>
         <span className="muted" style={{ marginLeft: 'auto' }}>
           {sel ? `Selected: ${sel.kind === 'group' ? (sections.find((s) => s.id === sel.sectionId) || {}).title : sel.kind === 'field' ? fieldLabel(sel) : sel.kind} · x${sel.x} y${sel.y} · ${sel.w}×${sel.h}` : 'Click an element to style it — a toolbar appears above it'}
         </span>
@@ -439,7 +467,7 @@ export default function Designer() {
           {tab === 'elements' && (
             <>
               <div className="cv-title">Design elements</div>
-              {[['text', '📝', 'Text / heading'], ['line', '━', 'Divider line'], ['box', '▭', 'Box / border'], ['photo', '🖼', 'Student photo'], ['signature', '✍', 'Signature']].map(([k, ico, label]) => (
+              {[['text', '📝', 'Text / heading'], ['line', '━', 'Divider line'], ['box', '▭', 'Box / border'], ['photo', '🖼', 'Student photo'], ['signature', '✍', 'Signature'], ['payment', '💳', 'Payment details']].map(([k, ico, label]) => (
                 <div key={k} className="cv-item" draggable onDragStart={paletteDrag(k)} onClick={() => addElement(k)}>
                   <b>{ico} {label}</b>
                   <span>drag or click to add</span>
@@ -533,6 +561,25 @@ export default function Designer() {
                   )}
                   {el.kind === 'line' && <div style={{ borderTop: `2px solid ${el.color}`, marginTop: 3 }} />}
                   {el.kind === 'photo' && <div className="dc-center muted">PHOTO</div>}
+                  {el.kind === 'payment' && (() => {
+                    const fs = Math.max(6, el.fontSize);
+                    const barH = fs + 6;
+                    const rows = [['Registration Amount (Rs)', '1000.00'], ['Payment Status', 'PAID'], ['Payment Mode', 'Online'], ['Transaction ID', 'pay_XXXXXXXX'], ['Receipt No.', '00001']];
+                    const rowH = Math.max(9, (el.h - barH - 2) / rows.length);
+                    return (
+                      <div>
+                        <div style={{ height: barH, background: el.color, color: '#fff', fontWeight: 700, fontSize: fs, padding: '2px 5px', overflow: 'hidden', whiteSpace: 'nowrap', textAlign: el.align }}>
+                          {el.text || 'PAYMENT DETAILS'}
+                        </div>
+                        {rows.map(([k, v]) => (
+                          <div key={k} style={{ display: 'flex', height: rowH, overflow: 'hidden', borderBottom: '1px solid #e5e7eb', alignItems: 'center' }}>
+                            <span style={{ width: '50%', color: '#6b7280', fontSize: Math.max(5, fs - 0.5), fontWeight: 400, whiteSpace: 'nowrap', overflow: 'hidden' }}>{k}</span>
+                            <span style={{ width: '50%', color: v === 'PAID' ? '#15803d' : '#111827', fontWeight: 700, fontSize: fs, whiteSpace: 'nowrap', overflow: 'hidden' }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   {selId === el.id && HANDLES.map((h) => (
                     <div key={h} className={`cv-h cv-h-${h}`} onMouseDown={startResize(el, h)} />
                   ))}
@@ -574,6 +621,10 @@ export default function Designer() {
                   </select>
                 )}
                 {sel.kind === 'group' && <button onClick={ungroup} title="Ungroup — make every field adjustable">⛓✂</button>}
+                {sel.kind === 'payment' && (
+                  <input type="text" value={sel.text || ''} placeholder="PAYMENT DETAILS" style={{ marginTop: 0, width: 150 }}
+                    onMouseDown={(e) => e.stopPropagation()} onChange={(e) => update({ text: e.target.value })} />
+                )}
                 <button onClick={duplicateSel} title="Duplicate (Ctrl+D)">⧉</button>
                 <button onClick={() => reorder('front')} title="Bring to front">▲</button>
                 <button onClick={() => reorder('back')} title="Send to back">▼</button>

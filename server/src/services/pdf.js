@@ -476,6 +476,28 @@ function drawCustomPdf(doc, s) {
         : v != null && v !== '' ? String(v) : '—';
       const fStyle = el.labelStyle || (el.showLabel === false ? 'hidden' : 'above');
       fieldCell(doc, { x: x + 1, y, w: w - 2, h, fs, bold: el.bold, color, align, labelStyle: fStyle, underline: !!el.underline }, el.labelText || f.label, display);
+    } else if (el.kind === 'payment') {
+      // Payment information block (amount, status, mode, transaction id)
+      const pay = (s.payments || []).find((p) => ['paid', 'mock_paid'].includes(p.status));
+      const rows = [
+        ['Registration Amount (Rs)', Number(s.amount || 0).toFixed(2)],
+        ['Payment Status', s.paymentStatus === 'paid' ? 'PAID' : (s.paymentStatus || '—')],
+        ['Payment Mode', pay ? 'Online' : '—'],
+        ['Transaction ID', pay ? (pay.paymentId || pay.orderId || '—') : '—'],
+        ['Receipt No.', s.id ? String(s.id).padStart(5, '0') : '—'],
+      ];
+      const barH = fs + 6;
+      doc.rect(x, y, w, barH).fillColor(color).fill();
+      doc.fontSize(fs).font('Helvetica-Bold').fillColor('#ffffff').text(el.text || 'PAYMENT DETAILS', x + 5, y + 3, { width: w - 10, lineBreak: false, align });
+      const rowH = Math.max(9, (h - barH - 2) / rows.length);
+      rows.forEach(([k, v], i) => {
+        const ry = y + barH + 2 + i * rowH;
+        if (ry + rowH > 820) return;
+        doc.fontSize(Math.max(5, fs - 0.5)).font('Helvetica').fillColor('#6b7280').text(k, x + 3, ry + 1, { width: w * 0.5 - 6, lineBreak: false, ellipsis: true });
+        doc.fontSize(fs).font('Helvetica-Bold').fillColor(k === 'Payment Status' && v === 'PAID' ? '#15803d' : '#111827')
+          .text(v, x + w * 0.5, ry + 1, { width: w * 0.5 - 4, lineBreak: false, ellipsis: true });
+        doc.moveTo(x, ry + rowH).lineTo(x + w, ry + rowH).lineWidth(0.3).strokeColor('#e5e7eb').stroke();
+      });
     } else if (el.kind === 'text') {
       const text = String(el.text || '').replace(/\{\{(\w+)\}\}/g, (_, k) => meta[k] ?? '');
       doc.fontSize(fs).font(font).fillColor(color).text(text, x + 1, y, { width: w - 2, height: h, ellipsis: true, align });
