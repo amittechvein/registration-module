@@ -35,6 +35,10 @@ export default function Designer() {
   const [palSec, setPalSec] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [snapOn, setSnapOn] = useState(true);
+  const [designs, setDesigns] = useState([]);      // [{name, settings, elements}]
+  const [designIdx, setDesignIdx] = useState(0);   // design being edited
+  const [finalIdx, setFinalIdx] = useState(0);     // design used for real PDFs (★)
+  const [pageView, setPageView] = useState(1);     // canvas page (1 or 2)
   const [guides, setGuides] = useState({ v: [], h: [] });
   const [msg, setMsg] = useState(null);
   const dragRef = useRef(null);
@@ -69,34 +73,49 @@ export default function Designer() {
       if (secs.length) setPalSec(secs[0].id);
       let layout = null;
       try { layout = JSON.parse(r.data.layout || 'null'); } catch {}
-      if (layout?.elements?.length) {
-        setElements(layout.elements.map((e) => ({
-          id: uid(), ...e,
-          // migrate old boolean label props to the 3-way labelStyle
-          ...(e.kind === 'group' ? { labelStyle: e.labelStyle || (e.showLabels === false ? 'hidden' : 'above') } : {}),
-          ...(e.kind === 'field' ? { labelStyle: e.labelStyle || (e.showLabel === false ? 'hidden' : 'above') } : {}),
-        })));
-        setSettings({ showHeader: true, topSpace: 100, header: {}, ...(layout.settings || {}) });
+      const withIds = (els) => (els || []).map((e) => ({
+        id: uid(), ...e,
+        ...(e.kind === 'group' ? { labelStyle: e.labelStyle || (e.showLabels === false ? 'hidden' : 'above') } : {}),
+        ...(e.kind === 'field' ? { labelStyle: e.labelStyle || (e.showLabel === false ? 'hidden' : 'above') } : {}),
+      }));
+      let versions, active;
+      if (layout?.versions?.length) {
+        versions = layout.versions.map((v) => ({ name: v.name || 'Design', settings: { showHeader: true, topSpace: 100, header: {}, ...(v.settings || {}) }, elements: withIds(v.elements) }));
+        active = Math.min(layout.active || 0, versions.length - 1);
+      } else if (layout?.elements?.length) {
+        versions = [{ name: 'Design 1', settings: { showHeader: true, topSpace: 100, header: {}, ...(layout.settings || {}) }, elements: withIds(layout.elements) }];
+        active = 0;
       } else {
-        autoLayout(r.data);
+        versions = [{ name: 'Design 1', settings: { showHeader: true, topSpace: 100, header: {} }, elements: autoLayoutEls(r.data) }];
+        active = 0;
       }
+      setDesigns(versions);
+      setDesignIdx(active);
+      setFinalIdx(active);
+      setElements(versions[active].elements);
+      setSettings(versions[active].settings);
     }).catch((e) => setMsg({ type: 'err', text: errMsg(e) }));
   }, [id]); // eslint-disable-line
 
-  const autoLayout = (t) => {
-    const els = [];
+  const autoLayoutEls = (t) => {
+    const els = [
+      // Form No + date strip under the header
+      { id: uid(), kind: 'text', text: 'Form No: {{form_no}}', x: 22, y: 112, w: 200, h: 15, fontSize: 10, bold: true, color: '#111827', align: 'left' },
+      { id: uid(), kind: 'text', text: 'Date: {{date}}  ·  Class: {{class}} ({{session}})', x: 305, y: 112, w: 268, h: 15, fontSize: 9, bold: false, color: '#374151', align: 'right' },
+    ];
     const colX = [22, 305], colW = 268;
-    const y = [112, 112];
+    const y = [134, 134];
     for (const s of (t.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
       const n = (s.fields || []).length;
       const h = 20 + Math.max(1, n) * 22;
       const col = y[0] <= y[1] ? 0 : 1;
       if (y[col] + h > 815) continue;
-      els.push({ id: uid(), kind: 'group', sectionId: s.id, x: colX[col], y: y[col], w: colW, h, fontSize: 8, cols: 1, showLabels: true, underline: true, color: '#1e3a8a', align: 'left' });
+      els.push({ id: uid(), kind: 'group', sectionId: s.id, x: colX[col], y: y[col], w: colW, h, fontSize: 8, cols: 1, labelStyle: 'above', underline: true, color: '#1e3a8a', align: 'left' });
       y[col] += h + 10;
     }
-    setElements(els);
+    return els;
   };
+  const autoLayout = (t) => setElements(autoLayoutEls(t));
 
   /* ------------------- move / resize with smart guides ------------------- */
   useEffect(() => {
@@ -104,9 +123,9 @@ export default function Designer() {
       const d = dragRef.current;
       if (!d) return;
       const dx = (e.clientX - d.startX) / d.zoom, dy = (e.clientY - d.startY) / d.zoom;
-      const others = elsRef.current.filter((o) => o.id !== d.id);
       const el = elsRef.current.find((o) => o.id === d.id);
       if (!el) return;
+      const others = elsRef.current.filter((o) => o.id !== d.id && (o.page || 1) === (el.page || 1));
 
       if (d.mode === 'move') {
         let nx = d.origX + dx, ny = d.origY + dy;
@@ -191,7 +210,7 @@ export default function Designer() {
   /* ---------------------------- palette ---------------------------- */
   const addElement = (kind, extra = {}, at) => {
     pushHist();
-    const el = { id: uid(), kind, x: at?.x ?? 40, y: at?.y ?? Math.min(740, 120 + elements.length * 8), align: 'left', color: kind === 'group' ? '#1e3a8a' : '#111827', bold: false, ...defaultsFor(kind), ...extra };
+    const el = { id: uid(), kind, page: pageView, x: at?.x ?? 40, y: at?.y ?? Math.min(740, 120 + elements.length * 8), align: 'left', color: kind === 'group' ? '#1e3a8a' : '#111827', bold: false, ...defaultsFor(kind), ...extra };
     if (kind === 'group') {
       const sec = sections.find((s) => s.id === extra.sectionId);
       if (sec) el.h = at?.h ?? 20 + Math.max(1, sec.fields.length) * 22;
@@ -258,6 +277,69 @@ export default function Designer() {
     setMsg({ type: 'ok', text: `Ungrouped "${sec.title}" — every field is now individually adjustable.` });
   };
 
+  /* ---------------- design variants (show different options to the client) ---------------- */
+  const commitCurrent = (list = designs) => {
+    const copy = [...list];
+    copy[designIdx] = { ...copy[designIdx], settings, elements: elsRef.current };
+    return copy;
+  };
+  const switchDesign = (i) => {
+    if (i === designIdx) return;
+    const copy = commitCurrent();
+    setDesigns(copy);
+    setDesignIdx(i);
+    setElements(copy[i].elements);
+    setSettings(copy[i].settings);
+    setSelId(null); setPageView(1);
+    histRef.current = [];
+  };
+  const newDesign = (fromCurrent) => {
+    const copy = commitCurrent();
+    const base = fromCurrent
+      ? { name: `${copy[designIdx].name} (copy)`, settings: JSON.parse(JSON.stringify(settings)), elements: JSON.parse(JSON.stringify(elsRef.current)).map((e) => ({ ...e, id: uid() })) }
+      : { name: `Design ${copy.length + 1}`, settings: { showHeader: true, topSpace: 100, header: {} }, elements: autoLayoutEls(template) };
+    copy.push(base);
+    setDesigns(copy);
+    setDesignIdx(copy.length - 1);
+    setElements(base.elements);
+    setSettings(base.settings);
+    setSelId(null); setPageView(1);
+  };
+  const deleteDesign = () => {
+    if (designs.length <= 1) { setMsg({ type: 'err', text: 'At least one design is required' }); return; }
+    const copy = designs.filter((_, i) => i !== designIdx);
+    const nf = finalIdx === designIdx ? 0 : finalIdx > designIdx ? finalIdx - 1 : finalIdx;
+    const ni = Math.max(0, designIdx - 1);
+    setDesigns(copy); setFinalIdx(nf); setDesignIdx(ni);
+    setElements(copy[ni].elements); setSettings(copy[ni].settings);
+    setSelId(null);
+  };
+  const renameDesign = (name) => setDesigns((d) => d.map((v, i) => (i === designIdx ? { ...v, name } : v)));
+
+  /** Regroup: gather this section's loose fields back into one section block. */
+  const regroup = () => {
+    const f = elsRef.current.find((e) => e.id === selId && e.kind === 'field');
+    if (!f) return;
+    const sec = sections.find((s) => (s.fields || []).some((x) => x.id === f.fieldId));
+    if (!sec) return;
+    const secFieldIds = new Set(sec.fields.map((x) => x.id));
+    const loose = elsRef.current.filter((e) => e.kind === 'field' && secFieldIds.has(e.fieldId) && (e.page || 1) === (f.page || 1));
+    if (!loose.length) return;
+    pushHist();
+    const x1 = Math.min(...loose.map((e) => e.x)), y1 = Math.min(...loose.map((e) => e.y));
+    const x2 = Math.max(...loose.map((e) => e.x + e.w)), y2 = Math.max(...loose.map((e) => e.y + e.h));
+    const w = Math.max(120, x2 - x1), h = Math.max(40, y2 - y1 + 16);
+    const group = {
+      id: uid(), kind: 'group', sectionId: sec.id, page: f.page || 1,
+      x: x1, y: Math.max(0, y1 - 16), w, h,
+      fontSize: f.fontSize || 8, cols: w > 400 ? 2 : 1,
+      labelStyle: f.labelStyle || 'above', underline: f.underline !== false, color: '#1e3a8a', align: 'left',
+    };
+    setElements((els) => [...els.filter((e) => !(e.kind === 'field' && secFieldIds.has(e.fieldId) && (e.page || 1) === (f.page || 1))), group]);
+    setSelId(group.id);
+    setMsg({ type: 'ok', text: `Regrouped "${sec.title}" into one section block.` });
+  };
+
   /** Master colors: recolor the whole layout in one click. */
   const applyMasterColors = (primary, secondary) => {
     pushHist();
@@ -299,17 +381,22 @@ export default function Designer() {
   const save = async () => {
     setMsg(null);
     try {
-      const layout = { settings, elements: elements.map(({ id: _id, ...el }) => el) };
+      const copy = commitCurrent();
+      setDesigns(copy);
+      const layout = {
+        active: finalIdx,
+        versions: copy.map((v) => ({ name: v.name, settings: v.settings, elements: v.elements.map(({ id: _id, ...el }) => el) })),
+      };
       await adminApi.post(`/templates/${id}/layout`, { layout });
-      setMsg({ type: 'ok', text: 'Layout saved.' });
+      setMsg({ type: 'ok', text: `Saved ${copy.length} design(s). "${copy[finalIdx].name}" ★ is used for real PDFs.` });
       return true;
     } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); return false; }
   };
-  const preview = async () => {
+  const preview = async (idx = designIdx) => {
     if (!(await save())) return;
     try {
       const t = sessionStorage.getItem('adminToken');
-      const r = await fetch(`/api/admin/templates/${id}/preview-pdf`, { headers: { Authorization: `Bearer ${t}` } });
+      const r = await fetch(`/api/admin/templates/${id}/preview-pdf?design=${idx}`, { headers: { Authorization: `Bearer ${t}` } });
       if (!r.ok) throw new Error('Preview failed');
       window.open(URL.createObjectURL(await r.blob()), '_blank');
     } catch (e) { setMsg({ type: 'err', text: e.message }); }
@@ -373,6 +460,22 @@ export default function Designer() {
       </div>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
 
+      {/* design variants bar — build multiple options, star the final one */}
+      <div className="card dz-designs">
+        <span className="drag-note" style={{ marginRight: 4 }}>DESIGNS</span>
+        {designs.map((d, i) => (
+          <div key={i} className={`design-chip ${i === designIdx ? 'on' : ''}`} onClick={() => switchDesign(i)} title={i === finalIdx ? 'Final design (used for real PDFs)' : 'Click to edit'}>
+            {i === finalIdx ? '★ ' : ''}{d.name}
+          </div>
+        ))}
+        <button className="btn small ghost" onClick={() => newDesign(false)} title="Blank new design">+ New</button>
+        <button className="btn small ghost" onClick={() => newDesign(true)} title="Duplicate current design">⧉ Duplicate</button>
+        <input type="text" value={designs[designIdx]?.name || ''} style={{ width: 140, marginTop: 0 }} onChange={(e) => renameDesign(e.target.value)} title="Rename current design" />
+        <button className="btn small ghost" onClick={() => setFinalIdx(designIdx)} disabled={finalIdx === designIdx} title="Use this design for real PDFs">★ Set as final</button>
+        <button className="btn small ghost" onClick={() => preview(designIdx)}>👁 Preview this</button>
+        <button className="btn small danger" onClick={deleteDesign} disabled={designs.length <= 1}>🗑</button>
+      </div>
+
       <div className="card dz-toolbar">
         <label className="check" style={{ margin: 0 }}>
           <input type="checkbox" checked={settings.showHeader} onChange={(e) => setSettings({ ...settings, showHeader: e.target.checked })} />
@@ -388,6 +491,20 @@ export default function Designer() {
         <label className="check" style={{ margin: 0 }}>
           <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> snap
         </label>
+        <span className="muted">|</span>
+        <b style={{ fontSize: 12.5 }}>📄 Page</b>
+        <div style={{ display: 'flex', gap: 2 }}>
+          {[1, 2].map((p) => (
+            <button key={p} className={`btn small ${pageView === p ? '' : 'ghost'}`} onClick={() => { setPageView(p); setSelId(null); }}>
+              {p}{p === 2 && elements.some((e) => (e.page || 1) === 2) ? ` (${elements.filter((e) => (e.page || 1) === 2).length})` : ''}
+            </button>
+          ))}
+        </div>
+        {pageView === 2 && (
+          <label className="check" style={{ margin: 0 }}>
+            <input type="checkbox" checked={!!settings.headerPage2} onChange={(e) => setSettings({ ...settings, headerPage2: e.target.checked })} /> header on page 2
+          </label>
+        )}
         <span className="muted">|</span>
         <b style={{ fontSize: 12.5 }}>🎨 Master colors</b>
         <label className="check" style={{ margin: 0 }}>Primary
@@ -473,6 +590,16 @@ export default function Designer() {
                   <span>drag or click to add</span>
                 </div>
               ))}
+              <div className="cv-item" draggable onDragStart={paletteDrag('text', { text: 'Form No: {{form_no}}', bold: true, fontSize: 10, w: 170 })}
+                onClick={() => addElement('text', { text: 'Form No: {{form_no}}', bold: true, fontSize: 10, w: 170 })}>
+                <b>🔢 Form Number</b>
+                <span>prints the application's form no</span>
+              </div>
+              <div className="cv-item" draggable onDragStart={paletteDrag('text', { text: 'Class: {{class}} · Session: {{session}} · Date: {{date}}', fontSize: 9, w: 260 })}
+                onClick={() => addElement('text', { text: 'Class: {{class}} · Session: {{session}} · Date: {{date}}', fontSize: 9, w: 260 })}>
+                <b>🏷 Class / Session / Date</b>
+                <span>meta info strip</span>
+              </div>
               <div className="cv-hint" style={{ marginTop: 8 }}>Text supports {'{{form_no}} {{class}} {{session}} {{date}}'}</div>
             </>
           )}
@@ -518,7 +645,7 @@ export default function Designer() {
               {guides.v.map((g, i) => <div key={'v' + i} className="cv-guide-v" style={{ left: g }} />)}
               {guides.h.map((g, i) => <div key={'h' + i} className="cv-guide-h" style={{ top: g }} />)}
 
-              {elements.map((el) => (
+              {elements.filter((el) => (el.page || 1) === pageView).map((el) => (
                 <div
                   key={el.id}
                   className={`dc-el dc-${el.kind} ${selId === el.id ? 'sel' : ''}`}
@@ -621,6 +748,10 @@ export default function Designer() {
                   </select>
                 )}
                 {sel.kind === 'group' && <button onClick={ungroup} title="Ungroup — make every field adjustable">⛓✂</button>}
+                {sel.kind === 'field' && <button onClick={regroup} title="Regroup — collect this section's fields back into one block">⛓</button>}
+                <button onClick={() => { update({ page: (sel.page || 1) === 1 ? 2 : 1 }); setSelId(null); }} title={`Move to page ${(sel.page || 1) === 1 ? 2 : 1}`}>
+                  📄{(sel.page || 1) === 1 ? '2' : '1'}
+                </button>
                 {sel.kind === 'payment' && (
                   <input type="text" value={sel.text || ''} placeholder="PAYMENT DETAILS" style={{ marginTop: 0, width: 150 }}
                     onMouseDown={(e) => e.stopPropagation()} onChange={(e) => update({ text: e.target.value })} />

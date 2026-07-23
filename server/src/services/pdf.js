@@ -408,9 +408,21 @@ function fieldCell(doc, { x, y, w, h, fs, bold, color, align, labelStyle, underl
   if (underline) doc.moveTo(x, y + h - 1.5).lineTo(x + w, y + h - 1.5).lineWidth(0.35).strokeColor('#d1d5db').stroke();
 }
 
-function drawCustomPdf(doc, s) {
+/** Normalize layout JSON: supports both the old single-design format and the
+ *  new multi-design format {versions:[{name,settings,elements}], active}. */
+function resolveLayout(raw, designIndex = null) {
   let layout = null;
-  try { layout = JSON.parse(s.activation?.template?.layout || 'null'); } catch {}
+  try { layout = JSON.parse(raw || 'null'); } catch {}
+  if (!layout) return null;
+  if (Array.isArray(layout.versions)) {
+    const idx = designIndex != null ? designIndex : (layout.active || 0);
+    return layout.versions[Math.max(0, Math.min(layout.versions.length - 1, idx))] || null;
+  }
+  return layout; // old format
+}
+
+function drawCustomPdf(doc, s) {
+  const layout = resolveLayout(s.activation?.template?.layout, s.__designIndex ?? null);
   if (!layout || !Array.isArray(layout.elements) || !layout.elements.length) {
     return drawFlowPdf(doc, s, THEMES.modern); // nothing designed yet → fallback
   }
@@ -433,7 +445,33 @@ function drawCustomPdf(doc, s) {
     applicant_phone: s.applicant?.phone || '', applicant_name: s.applicant?.name || '',
   };
 
-  for (const el of layout.elements) {
+  // Two-page support: render page-1 elements, then page-2 on a fresh sheet
+  const page1 = layout.elements.filter((e) => (e.page || 1) === 1);
+  const page2 = layout.elements.filter((e) => (e.page || 1) === 2);
+  renderCustomElements(doc, s, page1, data, settings);
+  if (page2.length) {
+    doc.addPage({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
+    if (settings.headerPage2) header(doc, THEMES.modern, settings.header || null);
+    renderCustomElements(doc, s, page2, data, settings);
+  }
+}
+
+function renderCustomElements(doc, s, elements, data, settings) {
+  const fieldsById = {};
+  for (const sec of s.activation?.template?.sections || []) {
+    for (const f of sec.fields || []) fieldsById[f.id] = f;
+  }
+  const photoBuf = findImage(s, data, (l) => l.includes('student photo'));
+  const sigBuf = findImage(s, data, (l) => l.includes('signature'));
+  const meta = {
+    form_no: s.formNo || '', status: s.status?.name || '',
+    class: s.activation?.classRoom?.name || '', session: s.activation?.session?.name || '',
+    form: s.activation?.title || '',
+    date: s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('en-IN') : '',
+    applicant_phone: s.applicant?.phone || '', applicant_name: s.applicant?.name || '',
+  };
+
+  for (const el of elements) {
     const x = Number(el.x) || 0, y = Number(el.y) || 0;
     const w = Math.max(10, Number(el.w) || 100), h = Math.max(8, Number(el.h) || 20);
     if (y > 815) continue; // keep on the single designed page

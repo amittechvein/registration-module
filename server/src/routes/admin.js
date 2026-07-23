@@ -223,6 +223,7 @@ router.get('/templates/:id/preview-pdf', requirePerm('forms'), async (req, res) 
     }
   }
   const s = {
+    __designIndex: req.query.design != null ? Number(req.query.design) : null,
     id: 0, data: JSON.stringify(sample), formNo: 'PREVIEW-0001', submittedAt: new Date(),
     amount: 1000, paymentStatus: 'paid',
     payments: [{ status: 'paid', orderId: 'order_sample', paymentId: 'pay_sample', updatedAt: new Date() }],
