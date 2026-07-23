@@ -3,13 +3,13 @@ import { NavLink, Outlet, Navigate, useNavigate } from 'react-router-dom';
 import { hasPerm, publicApi } from '../lib/api.js';
 
 const NAV = [
-  { to: '/admin', end: true, icon: '📊', label: 'Dashboard', perm: null },
-  { to: '/admin/templates', icon: '🧩', label: 'Form Templates', perm: 'forms' },
-  { to: '/admin/activations', icon: '🚀', label: 'Active Forms', perm: 'forms' },
-  { to: '/admin/submissions', icon: '📥', label: 'Submissions', perm: 'submissions' },
-  { to: '/admin/students', icon: '🎓', label: 'Allotted Students', perm: 'students' },
-  { to: '/admin/settings', icon: '⚙️', label: 'Settings', perm: 'settings' },
-  { to: '/admin/users', icon: '👥', label: 'Users', perm: 'users' },
+  { to: '/admin', end: true, icon: '📊', label: 'Dashboard', perm: null, bubble: '#d3e3fd' },
+  { to: '/admin/templates', icon: '🧩', label: 'Form Templates', perm: 'forms', bubble: '#e6f4ea' },
+  { to: '/admin/activations', icon: '🚀', label: 'Active Forms', perm: 'forms', bubble: '#fef7e0' },
+  { to: '/admin/submissions', icon: '📥', label: 'Submissions', perm: 'submissions', bubble: '#fce8e6' },
+  { to: '/admin/students', icon: '🎓', label: 'Allotted Students', perm: 'students', bubble: '#f3e8fd' },
+  { to: '/admin/settings', icon: '⚙️', label: 'Settings', perm: 'settings', bubble: '#e0f7fa' },
+  { to: '/admin/users', icon: '👥', label: 'Users', perm: 'users', bubble: '#fde7f3' },
 ];
 
 export default function AdminLayout() {
@@ -49,7 +49,7 @@ export default function AdminLayout() {
         <aside className="sidebar">
           {NAV.filter((n) => !n.perm || hasPerm(n.perm)).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end}>
-              <span className="nav-ico">{n.icon}</span>{n.label}
+              <span className="nav-ico" style={{ background: n.bubble }}>{n.icon}</span>{n.label}
             </NavLink>
           ))}
         </aside>

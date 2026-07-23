@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { adminApi, errMsg } from '../lib/api.js';
+import { adminApi, publicApi, errMsg } from '../lib/api.js';
 
 const GROUPS = [
   {
@@ -29,6 +29,8 @@ export default function Settings() {
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState({});
   const [busy, setBusy] = useState(false);
+  const [school, setSchool] = useState({ name: '' });
+  const [q, setQ] = useState('');
 
   const load = async () => {
     const [s, st] = await Promise.all([adminApi.get('/settings'), adminApi.get('/settings/status')]);
@@ -36,7 +38,19 @@ export default function Settings() {
     setValues(Object.fromEntries(s.data.map((i) => [i.key, i.value ?? ''])));
     setStatus(st.data);
   };
-  useEffect(() => { load().catch((e) => setMsg({ type: 'err', text: errMsg(e) })); }, []);
+  useEffect(() => {
+    load().catch((e) => setMsg({ type: 'err', text: errMsg(e) }));
+    publicApi.get('/school-info').then((r) => setSchool(r.data)).catch(() => {});
+  }, []);
+
+  // Google-account-style search: filter groups & fields as you type
+  const matches = (g) => {
+    if (!q.trim()) return true;
+    const needle = q.toLowerCase();
+    return g.title.toLowerCase().includes(needle)
+      || g.hint.toLowerCase().includes(needle)
+      || items.some((i) => i.group === g.id && i.label.toLowerCase().includes(needle));
+  };
 
   const save = async () => {
     setBusy(true); setMsg(null);
@@ -67,10 +81,14 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="topbar">
-        <div>
-          <h1>Settings</h1>
-          <div className="muted">SMS, Email and Razorpay configuration — stored securely, applied instantly</div>
+      {/* Google-Account-style centered header */}
+      <div className="gset-head">
+        <img src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+        <h1>{school.name || 'School Settings'}</h1>
+        <div className="muted">SMS, Email, Payments & Login configuration — stored securely, applied instantly</div>
+        <div className="gset-search">
+          <span>🔍</span>
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings (e.g. razorpay, otp, smtp…)" />
         </div>
         <button className="btn green" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save All Settings'}</button>
       </div>
@@ -84,7 +102,7 @@ export default function Settings() {
         </div>
       )}
 
-      {GROUPS.map((g) => (
+      {GROUPS.filter(matches).map((g) => (
         <div className="card" key={g.id}>
           <h3>{g.title}</h3>
           <div className="muted" style={{ marginBottom: 12 }}>{g.hint}</div>
