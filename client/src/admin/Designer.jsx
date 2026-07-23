@@ -50,12 +50,6 @@ export default function Designer() {
   const GRID = 5;
   const gsnap = (v) => (snapOn ? Math.round(v / GRID) * GRID : Math.round(v));
 
-  // Opt out of the global 85% zoom — drag/resize math needs 1:1 pixels here
-  useEffect(() => {
-    document.body.classList.add('designer-page');
-    return () => document.body.classList.remove('designer-page');
-  }, []);
-
   const sections = (template?.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
   const allFields = sections.flatMap((s) => (s.fields || []).map((f) => ({ ...f, sectionTitle: s.title })));
   const usedFieldIds = new Set(elements.filter((e) => e.kind === 'field').map((e) => e.fieldId));
