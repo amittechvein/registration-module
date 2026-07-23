@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { adminApi, errMsg, downloadBlob } from '../lib/api.js';
+import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
 
 export default function Submissions() {
   const [meta, setMeta] = useState({ sessions: [], classes: [] });
@@ -9,6 +9,9 @@ export default function Submissions() {
   const [sel, setSel] = useState([]);
   const [sortByScore, setSortByScore] = useState(false);
   const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [bulkCh, setBulkCh] = useState({ sms: false, email: false });
+  const [bulkNote, setBulkNote] = useState('');
   const [err, setErr] = useState('');
   const [f, setF] = useState(() => ({
     activationId: new URLSearchParams(window.location.search).get('activationId') || '',
@@ -42,10 +45,12 @@ export default function Submissions() {
           <h1>Submitted Forms</h1>
           <div className="muted">{rows.length} result(s)</div>
         </div>
-        <div>
-          <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/excel?${qs}`, 'submissions.xlsx')}>⬇ Excel</button>{' '}
-          <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/pdf?${qs}`, 'all-submissions.pdf')}>⬇ PDF (all)</button>
-        </div>
+        {hasPerm('export') && (
+          <div>
+            <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/excel?${qs}`, 'submissions.xlsx')}>⬇ Excel</button>{' '}
+            <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/pdf?${qs}`, 'all-submissions.pdf')}>⬇ PDF (all)</button>
+          </div>
+        )}
       </div>
       {err && <div className="alert err">{err}</div>}
 
@@ -104,14 +109,48 @@ export default function Submissions() {
       </div>
 
       {sel.length > 0 && (
-        <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <b>{sel.length} selected</b>
-          <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} style={{ width: 220 }}>
-            <option value="">Change status to…</option>
-            {(chosenActivation ? chosenActivation.statuses : []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <button className="btn" onClick={applyBulk} disabled={!bulkStatus}>Apply</button>
-          {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
+        <div className="card">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <b>{sel.length} selected</b>
+            {hasPerm('status') && (
+              <>
+                <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} style={{ width: 220 }}>
+                  <option value="">Change status to…</option>
+                  {(chosenActivation ? chosenActivation.statuses : []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <button className="btn" onClick={applyBulk} disabled={!bulkStatus}>Apply Status</button>
+                {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
+              </>
+            )}
+          </div>
+          {hasPerm('communicate') && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+              <input type="text" value={bulkMsg} onChange={(e) => setBulkMsg(e.target.value)} placeholder="Message to all selected applicants…" style={{ flex: 1, minWidth: 260 }} />
+              <label className="check" style={{ margin: 0 }}>
+                <input type="checkbox" checked={bulkCh.sms} onChange={(e) => setBulkCh({ ...bulkCh, sms: e.target.checked })} /> SMS
+              </label>
+              <label className="check" style={{ margin: 0 }}>
+                <input type="checkbox" checked={bulkCh.email} onChange={(e) => setBulkCh({ ...bulkCh, email: e.target.checked })} /> Email
+              </label>
+              <button
+                className="btn green"
+                disabled={!bulkMsg.trim()}
+                onClick={async () => {
+                  setBulkNote('Sending…');
+                  try {
+                    const channels = ['portal', ...(bulkCh.sms ? ['sms'] : []), ...(bulkCh.email ? ['email'] : [])];
+                    const { data } = await adminApi.post('/submissions/bulk-communications', { ids: sel, message: bulkMsg, channels });
+                    setBulkNote(`✅ Sent to ${data.count} applicant(s)`);
+                    setBulkMsg('');
+                  } catch (e) { setBulkNote('❌ ' + errMsg(e)); }
+                }}
+              >
+                Send to {sel.length} applicant(s)
+              </button>
+              {bulkNote && <span className="muted">{bulkNote}</span>}
+              <span className="muted" style={{ width: '100%' }}>Always appears in each applicant's portal thread; tick SMS/Email to also deliver there.</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -144,7 +183,7 @@ export default function Submissions() {
                 <td>{r.status ? <span className="badge" style={{ background: r.status.color }}>{r.status.name}</span> : <span className="pill">{r.isDraft ? 'Draft' : '—'}</span>}</td>
                 <td>{r.paymentStatus === 'paid' ? <span className="pill on">₹{Number(r.amount).toFixed(0)} paid</span> : <span className="pill">{r.paymentStatus}</span>}</td>
                 <td className="muted">{r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-IN') : '—'}</td>
-                <td><button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/submissions/${r.id}/pdf`, `form-${r.formNo || r.id}.pdf`)}>PDF</button></td>
+                <td>{hasPerm('export') && <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/submissions/${r.id}/pdf`, `form-${r.formNo || r.id}.pdf`)}>PDF</button>}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={10} className="muted">No submissions match the filters.</td></tr>}

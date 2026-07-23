@@ -14,6 +14,10 @@ const GROUPS = [
     id: 'email', title: 'Email (SMTP)',
     hint: 'Any SMTP provider works (Gmail: smtp.gmail.com, port 587, app password). Leave empty to log emails to the server console instead of sending.',
   },
+  {
+    id: 'auth', title: 'Login Options (Google Sign-In)',
+    hint: 'Create an OAuth Client ID at console.cloud.google.com → APIs & Services → Credentials → Create Credentials → OAuth client ID → Web application, and add https://form.techvein.org to "Authorized JavaScript origins". Paste the Client ID here — a "Sign in with Google" button then appears on both the parent portal and admin login. Admin Google login only works for emails that exist in Users.',
+  },
 ];
 
 export default function Settings() {

@@ -52,22 +52,62 @@ router.get('/forms/:slug', async (req, res) => {
 });
 
 // ---------- Applicant auth (auto user id by phone) ----------
+// Public login configuration (e.g. whether Google sign-in is available)
+router.get('/auth/config', async (_req, res) => {
+  const { getConfig } = require('../services/settings');
+  const cfg = await getConfig();
+  res.json({ googleClientId: cfg.GOOGLE_CLIENT_ID || null });
+});
+
+// Google sign-in for applicants (account auto-created from the Google email)
+router.post('/auth/google', async (req, res) => {
+  try {
+    const { getConfig } = require('../services/settings');
+    const cfg = await getConfig();
+    if (!cfg.GOOGLE_CLIENT_ID) return res.status(400).json({ error: 'Google login is not configured' });
+    const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(req.body.credential || ''));
+    const info = await r.json();
+    if (!r.ok || info.aud !== cfg.GOOGLE_CLIENT_ID || info.email_verified !== 'true') {
+      return res.status(401).json({ error: 'Google verification failed' });
+    }
+    let applicant = await Applicant.findOne({ where: { googleId: info.sub } });
+    if (!applicant) applicant = await Applicant.findOne({ where: { email: info.email } });
+    if (!applicant) applicant = await Applicant.create({ email: info.email, name: info.name || '', googleId: info.sub });
+    else await applicant.update({ googleId: info.sub, ...(applicant.name ? {} : { name: info.name || '' }) });
+    res.json({
+      token: sign({ role: 'applicant', id: applicant.id, phone: applicant.phone || '' }),
+      applicant: { id: applicant.id, phone: applicant.phone, name: applicant.name, email: applicant.email },
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Google login failed: ' + e.message });
+  }
+});
+
 router.post('/auth/request-otp', async (req, res) => {
-  const { phone } = req.body;
+  const { phone, email } = req.body;
   if (!/^[6-9]\d{9}$/.test(phone || '')) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
   // Cryptographically secure OTP, stored only as a bcrypt hash
   const otp = String(crypto.randomInt(100000, 1000000));
   const [applicant] = await Applicant.findOrCreate({ where: { phone }, defaults: { phone } });
-  await applicant.update({ otp: bcrypt.hashSync(otp, 8), otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0 });
-  const { sendSms } = require('../services/notify');
+  const cleanEmail = String(email || '').trim();
+  await applicant.update({
+    otp: bcrypt.hashSync(otp, 8), otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0,
+    ...(cleanEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) ? { email: cleanEmail } : {}),
+  });
+  const { sendSms, sendEmail } = require('../services/notify');
   const { getConfig } = require('../services/settings');
   const cfg = await getConfig();
   // OTP SMS text must match your DLT-registered template for delivery in India.
   const otpTemplate = cfg.OTP_SMS_TEMPLATE ||
     'The one time password for your account is {{otp}}.Please use the password to verify the account. Thanks!TECHVEIN IT SOLUTIONS PVT LTD';
-  await sendSms(phone, otpTemplate.replace('{{otp}}', otp));
+  // Send to BOTH channels: SMS + email (when an email is known for this applicant)
+  const jobs = [sendSms(phone, otpTemplate.replace('{{otp}}', otp))];
+  if (applicant.email) {
+    jobs.push(sendEmail(applicant.email, 'Your admission portal OTP', `Your one time password is ${otp}. It is valid for 10 minutes. Do not share it with anyone.`));
+  }
+  await Promise.all(jobs);
   const devShow = String(cfg.DEV_SHOW_OTP || 'true') === 'true';
-  res.json({ ok: true, ...(devShow ? { devOtp: otp } : {}) });
+  res.json({ ok: true, sentToEmail: !!applicant.email, ...(devShow ? { devOtp: otp } : {}) });
 });
 
 router.post('/auth/verify-otp', async (req, res) => {

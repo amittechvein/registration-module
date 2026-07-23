@@ -11,7 +11,22 @@ const AdminUser = sequelize.define('AdminUser', {
   name: DataTypes.STRING,
   email: { type: DataTypes.STRING, unique: true },
   passwordHash: DataTypes.STRING,
+  role: { type: DataTypes.STRING, defaultValue: 'staff' }, // owner (full access) | staff (permission based)
+  permissions: { type: DataTypes.TEXT, defaultValue: '{}' }, // JSON: {submissions,status,communicate,export,forms,students,settings,users}
+  active: { type: DataTypes.BOOLEAN, defaultValue: true },
 });
+
+// All grantable permissions for staff users
+const ADMIN_PERMISSIONS = [
+  { key: 'submissions', label: 'View submissions' },
+  { key: 'status', label: 'Update application status' },
+  { key: 'communicate', label: 'Message applicants' },
+  { key: 'export', label: 'Download PDF / Excel' },
+  { key: 'forms', label: 'Manage form templates & activations' },
+  { key: 'students', label: 'View allotted students' },
+  { key: 'settings', label: 'Manage settings (SMS/Email/Razorpay)' },
+  { key: 'users', label: 'Manage users' },
+];
 
 const AcademicSession = sequelize.define('AcademicSession', {
   name: { type: DataTypes.STRING, allowNull: false }, // e.g. 2026-27
@@ -82,9 +97,10 @@ const FormStatus = sequelize.define('FormStatus', {
 
 // ---- Applicants & submissions ----
 const Applicant = sequelize.define('Applicant', {
-  phone: { type: DataTypes.STRING, unique: true, allowNull: false },
+  phone: { type: DataTypes.STRING, unique: true, allowNull: true }, // null for Google-only accounts
   name: DataTypes.STRING,
   email: DataTypes.STRING,
+  googleId: { type: DataTypes.STRING, allowNull: true },
   otp: DataTypes.STRING, // bcrypt hash of the OTP — never stored in plain text
   otpExpiresAt: DataTypes.DATE,
   otpAttempts: { type: DataTypes.INTEGER, defaultValue: 0 },
@@ -215,6 +231,7 @@ module.exports = {
   sequelize,
   Setting,
   AdminUser,
+  ADMIN_PERMISSIONS,
   AcademicSession,
   ClassRoom,
   FormTemplate,

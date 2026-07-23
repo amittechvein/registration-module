@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { adminApi, errMsg, downloadBlob } from '../lib/api.js';
+import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
 
 export default function SubmissionDetail() {
   const { id } = useParams();
@@ -44,7 +44,7 @@ export default function SubmissionDetail() {
         </div>
         <div>
           <Link className="btn ghost" to="/admin/submissions">Back</Link>{' '}
-          <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/submissions/${id}/pdf`, `form-${s.formNo || id}.pdf`)}>⬇ PDF</button>
+          {hasPerm('export') && <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/submissions/${id}/pdf`, `form-${s.formNo || id}.pdf`)}>⬇ PDF</button>}
         </div>
       </div>
       {err && <div className="alert err">{err}</div>}
@@ -115,6 +115,7 @@ export default function SubmissionDetail() {
         </div>
 
         <div>
+          {hasPerm('status') && (
           <div className="card">
             <h3>Update Status</h3>
             <label className="fld">New status
@@ -131,6 +132,7 @@ export default function SubmissionDetail() {
             <button className="btn" onClick={updateStatus} disabled={!newStatus || s.isDraft}>Update Status</button>
             {s.isDraft && <div className="muted" style={{ marginTop: 6 }}>Draft forms can't have a status until submitted.</div>}
           </div>
+          )}
 
           <div className="card">
             <h3>Communication with Applicant</h3>
@@ -143,15 +145,17 @@ export default function SubmissionDetail() {
               ))}
               {!(s.communications || []).length && <div className="muted">No messages yet.</div>}
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ width: 110 }}>
-                <option value="portal">Portal</option>
-                <option value="sms">SMS</option>
-                <option value="email">Email</option>
-              </select>
-              <input type="text" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message to applicant…" onKeyDown={(e) => e.key === 'Enter' && sendMsg()} />
-              <button className="btn" onClick={sendMsg}>Send</button>
-            </div>
+            {hasPerm('communicate') && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ width: 110 }}>
+                  <option value="portal">Portal</option>
+                  <option value="sms">SMS</option>
+                  <option value="email">Email</option>
+                </select>
+                <input type="text" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message to applicant…" onKeyDown={(e) => e.key === 'Enter' && sendMsg()} />
+                <button className="btn" onClick={sendMsg}>Send</button>
+              </div>
+            )}
           </div>
         </div>
       </div>

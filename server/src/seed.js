@@ -8,6 +8,8 @@ async function ensureSeed() {
       name: 'Admin',
       email: 'admin@school.com',
       passwordHash: bcrypt.hashSync('admin123', 10),
+      role: 'owner',
+      permissions: '{}',
     });
     console.log('Seeded admin user → admin@school.com / admin123 (change this!)');
   }
@@ -18,6 +20,14 @@ async function ensureSeed() {
     const names = ['Nursery', 'LKG', 'UKG', ...Array.from({ length: 12 }, (_, i) => `Class ${i + 1}`)];
     await ClassRoom.bulkCreate(names.map((name, i) => ({ name, sortOrder: i })));
   }
+  // Migration for existing installs: ensure at least one owner and active flags set
+  const { Op } = require('sequelize');
+  await AdminUser.update({ active: true }, { where: { active: { [Op.is]: null } } });
+  if (!(await AdminUser.count({ where: { role: 'owner' } }))) {
+    const first = await AdminUser.findOne({ order: [['id', 'ASC']] });
+    if (first) await first.update({ role: 'owner' });
+  }
+
   // Auto-create the pre-built Nursery form (from the school's PDF) if missing
   const { ensurePrebuiltForms } = require('./prebuilt');
   await ensurePrebuiltForms();

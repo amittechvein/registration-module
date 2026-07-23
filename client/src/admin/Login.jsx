@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminApi, errMsg } from '../lib/api.js';
+import { adminApi, errMsg, storeAdminSession } from '../lib/api.js';
+import GoogleButton from '../components/GoogleButton.jsx';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -8,16 +9,21 @@ export default function Login() {
   const [err, setErr] = useState('');
   const navigate = useNavigate();
 
+  const finish = (data) => { storeAdminSession(data); navigate('/admin'); };
+
   const submit = async (e) => {
     e.preventDefault();
     try {
       const { data } = await adminApi.post('/auth/login', { email, password });
-      sessionStorage.setItem('adminToken', data.token);
-      sessionStorage.setItem('adminName', data.name);
-      navigate('/admin');
-    } catch (e2) {
-      setErr(errMsg(e2));
-    }
+      finish(data);
+    } catch (e2) { setErr(errMsg(e2)); }
+  };
+
+  const google = async (credential) => {
+    try {
+      const { data } = await adminApi.post('/auth/google', { credential });
+      finish(data);
+    } catch (e2) { setErr(errMsg(e2)); }
   };
 
   return (
@@ -34,6 +40,7 @@ export default function Login() {
         </label>
         <button className="btn" style={{ width: '100%' }}>Sign in</button>
       </form>
+      <GoogleButton onCredential={google} />
     </div>
   );
 }

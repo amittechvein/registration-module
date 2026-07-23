@@ -23,6 +23,19 @@ publicApi.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+/** Permission helper: owners can do everything; staff need the specific grant. */
+export function hasPerm(key) {
+  if (sessionStorage.getItem('adminRole') === 'owner') return true;
+  try { return !!JSON.parse(sessionStorage.getItem('adminPerms') || '{}')[key]; } catch { return false; }
+}
+
+export function storeAdminSession(data) {
+  sessionStorage.setItem('adminToken', data.token);
+  sessionStorage.setItem('adminName', data.name);
+  sessionStorage.setItem('adminRole', data.adminRole || 'owner');
+  sessionStorage.setItem('adminPerms', JSON.stringify(data.perms || {}));
+}
+
 export const errMsg = (e) =>
   e.response?.data?.error || (e.response?.data?.errors || []).join('; ') || e.message || 'Something went wrong';
 

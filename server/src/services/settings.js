@@ -18,6 +18,8 @@ const SETTING_DEFS = [
   { key: 'MSG91_AUTH_KEY', group: 'sms', label: 'MSG91 Auth Key (alternative)', secret: true },
   { key: 'MSG91_SENDER_ID', group: 'sms', label: 'MSG91 Sender ID', secret: false },
   { key: 'DEV_SHOW_OTP', group: 'sms', label: 'Show OTP on screen (testing mode)', secret: false },
+  // Login options
+  { key: 'GOOGLE_CLIENT_ID', group: 'auth', label: 'Google OAuth Client ID', secret: false },
   // Email (SMTP)
   { key: 'SMTP_HOST', group: 'email', label: 'SMTP Host', secret: false },
   { key: 'SMTP_PORT', group: 'email', label: 'SMTP Port', secret: false },
