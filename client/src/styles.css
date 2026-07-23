@@ -150,6 +150,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-c
 .pal-item { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; font-size: 12.5px; cursor: grab; background: #fbfdff; }
 .pal-item:hover { border-color: var(--brand); background: #eff6ff; }
 .pal-item.used { opacity: .55; }
+.pal-item.pal-active { border-color: var(--brand); background: #dbeafe; font-weight: 700; }
+.dc-el.dc-group { background: rgba(255,255,255,.6); }
 .design-canvas { position: relative; background: #fff; border: 1px solid #cbd5e1; box-shadow: 0 2px 14px rgba(15,23,42,.12); flex-shrink: 0;
   background-image: linear-gradient(#f1f5f9 1px, transparent 1px), linear-gradient(90deg, #f1f5f9 1px, transparent 1px);
   background-size: 25px 25px; overflow: hidden; }

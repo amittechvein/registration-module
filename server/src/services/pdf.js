@@ -399,7 +399,42 @@ function drawCustomPdf(doc, s) {
     const font = el.bold ? 'Helvetica-Bold' : 'Helvetica';
     const align = el.align || 'left';
 
-    if (el.kind === 'field') {
+    if (el.kind === 'group') {
+      // A whole form section as one resizable block: title + fields reflowed inside
+      const sec = (s.activation?.template?.sections || []).find((x) => x.id === el.sectionId);
+      if (!sec) continue;
+      const fields = (sec.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+      const titleH = fs + 8;
+      doc.fontSize(fs + 1).font('Helvetica-Bold').fillColor(el.color || '#1e3a8a')
+        .text(el.title || sec.title, x + 1, y, { width: w - 2, height: titleH, ellipsis: true, lineBreak: false, align });
+      doc.moveTo(x, y + titleH - 3).lineTo(x + w, y + titleH - 3).lineWidth(0.6).strokeColor(el.color || '#1e3a8a').stroke();
+      if (!fields.length) continue;
+      const cols = Math.max(1, Math.min(3, Number(el.cols) || 1));
+      const rows = Math.ceil(fields.length / cols);
+      const rowH = Math.max(9, (h - titleH) / rows);
+      const cellW = w / cols;
+      fields.forEach((f, idx) => {
+        const col = Math.floor(idx / rows), row = idx % rows;
+        const fx = x + col * cellW + 1, fy = y + titleH + row * rowH, fw = cellW - 8;
+        if (fy + rowH > 820) return;
+        const v = data[f.id];
+        const display = Array.isArray(v) ? v.join(', ')
+          : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
+          : v != null && v !== '' ? String(v) : '—';
+        let vy = fy;
+        if (el.showLabels !== false && rowH >= 14) {
+          const lfs = Math.max(4.5, fs * 0.7);
+          doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
+            .text(f.label, fx, fy + 1, { width: fw, height: lfs + 2, ellipsis: true, lineBreak: false });
+          vy = fy + lfs + 3;
+        }
+        doc.fontSize(fs).font(el.bold ? 'Helvetica-Bold' : 'Helvetica').fillColor('#111827')
+          .text(display, fx, vy, { width: fw, height: Math.max(fs + 2, fy + rowH - vy - 2), ellipsis: true });
+        if (el.underline !== false) {
+          doc.moveTo(fx, fy + rowH - 1.5).lineTo(fx + fw, fy + rowH - 1.5).lineWidth(0.35).strokeColor('#d1d5db').stroke();
+        }
+      });
+    } else if (el.kind === 'field') {
       const f = fieldsById[el.fieldId];
       if (!f) continue;
       const v = data[el.fieldId];
