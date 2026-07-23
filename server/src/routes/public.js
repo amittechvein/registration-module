@@ -51,6 +51,21 @@ router.get('/forms/:slug', async (req, res) => {
   });
 });
 
+// School logo (public — shown on portal & designer preview)
+router.get('/logo', (_req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  for (const n of ['logo.png', 'logo.jpg']) {
+    const p = path.join(__dirname, '..', 'assets', n);
+    if (fs.existsSync(p)) {
+      res.setHeader('Content-Type', n.endsWith('png') ? 'image/png' : 'image/jpeg');
+      res.setHeader('Cache-Control', 'no-cache');
+      return res.send(fs.readFileSync(p));
+    }
+  }
+  res.status(404).end();
+});
+
 // ---------- Applicant auth (auto user id by phone) ----------
 // Public login configuration (e.g. whether Google sign-in is available)
 router.get('/auth/config', async (_req, res) => {

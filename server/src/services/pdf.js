@@ -13,8 +13,14 @@ const path = require('path');
 
 const SCHOOL_NAME = process.env.SCHOOL_NAME || 'Nirmala Convent School, Siliguri';
 const SCHOOL_ADDRESS = process.env.SCHOOL_ADDRESS || '3rd Mile, Sevoke Road, Ward 42, Siliguri, West Bengal 734008';
-const LOGO_PATH = path.join(__dirname, '..', 'assets', 'logo.jpg');
-const HAS_LOGO = fs.existsSync(LOGO_PATH);
+const ASSETS = path.join(__dirname, '..', 'assets');
+function getLogoPath() {
+  for (const n of ['logo.png', 'logo.jpg']) {
+    const p = path.join(ASSETS, n);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 
 const RED = '#b91c1c';
 const NAVY = '#1e3a8a';
@@ -94,14 +100,29 @@ const THEMES = {
 };
 
 /* ---------------------------- shared pieces ---------------------------- */
-function header(doc, theme = THEMES.modern) {
+function header(doc, theme = THEMES.modern, hset = null) {
+  // hset (from the layout designer) can override text, logo, alignment & color
+  const name = hset?.name || SCHOOL_NAME;
+  const address = hset?.address || SCHOOL_ADDRESS;
+  const line3 = hset?.line3 || '';
+  const nameColor = hset?.nameColor || theme.nameColor;
+  const align = hset?.align === 'center' ? 'center' : 'left';
+  const showLogo = hset ? hset.showLogo !== false : true;
+  const logo = showLogo ? getLogoPath() : null;
+
   const top = 32;
-  if (HAS_LOGO) doc.image(LOGO_PATH, L, top, { fit: [52, 52] });
-  const tx = HAS_LOGO ? L + 62 : L;
-  doc.fontSize(16).font(theme.fonts.bold).fillColor(theme.nameColor).text(SCHOOL_NAME, tx, top + 4, { width: R - tx });
-  doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(SCHOOL_ADDRESS, tx, doc.y + 1, { width: R - tx });
+  if (logo && align === 'left') doc.image(logo, L, top, { fit: [52, 52] });
+  const tx = logo && align === 'left' ? L + 62 : L;
+  const tw = R - tx;
+  if (logo && align === 'center') {
+    try { doc.image(logo, (L + R) / 2 - 24, top - 4, { fit: [48, 48] }); doc.y = top + 46; } catch {}
+  }
+  const nameY = logo && align === 'center' ? top + 48 : top + 4;
+  doc.fontSize(16).font(theme.fonts.bold).fillColor(nameColor).text(name, tx, nameY, { width: tw, align });
+  doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(address, tx, doc.y + 1, { width: tw, align });
+  if (line3) doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(line3, tx, doc.y + 1, { width: tw, align });
   const yy = Math.max(doc.y + 6, top + 56);
-  doc.moveTo(L, yy).lineTo(R, yy).lineWidth(1.4).strokeColor(theme.rules[0]).stroke();
+  doc.moveTo(L, yy).lineTo(R, yy).lineWidth(1.4).strokeColor(hset?.nameColor || theme.rules[0]).stroke();
   doc.moveTo(L, yy + 2.5).lineTo(R, yy + 2.5).lineWidth(0.5).strokeColor(theme.rules[1]).stroke();
   doc.y = yy + 9;
 }
@@ -365,6 +386,28 @@ function drawClassicPdf(doc, s) {
 /* ----------------------- custom (canvas-designed) ----------------------- */
 /** Renders the layout designed in Admin → Form Templates → Design PDF Layout.
  *  Canvas coordinates are 1:1 PDF points on an A4 page (595 × 842). */
+/** Render one field cell in the chosen label style: above | inline | hidden */
+function fieldCell(doc, { x, y, w, h, fs, bold, color, align, labelStyle, underline }, label, display) {
+  const vFont = bold ? 'Helvetica-Bold' : 'Helvetica';
+  if (labelStyle === 'inline') {
+    doc.fontSize(fs).font('Helvetica').fillColor('#6b7280')
+      .text(label + ': ', x, y + 1, { width: w, height: h, continued: true, ellipsis: true, align })
+      .font(vFont).fillColor(color).text(display, { width: w });
+  } else if (labelStyle === 'hidden') {
+    doc.fontSize(fs).font(vFont).fillColor(color).text(display, x, y + 1, { width: w, height: h, ellipsis: true, align });
+  } else { // above
+    let vy = y;
+    if (h >= 14) {
+      const lfs = Math.max(4.5, fs * 0.7);
+      doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
+        .text(label, x, y + 1, { width: w, height: lfs + 2, ellipsis: true, lineBreak: false, align });
+      vy = y + lfs + 3;
+    }
+    doc.fontSize(fs).font(vFont).fillColor(color).text(display, x, vy, { width: w, height: Math.max(fs + 2, y + h - vy - 2), ellipsis: true, align });
+  }
+  if (underline) doc.moveTo(x, y + h - 1.5).lineTo(x + w, y + h - 1.5).lineWidth(0.35).strokeColor('#d1d5db').stroke();
+}
+
 function drawCustomPdf(doc, s) {
   let layout = null;
   try { layout = JSON.parse(s.activation?.template?.layout || 'null'); } catch {}
@@ -373,7 +416,7 @@ function drawCustomPdf(doc, s) {
   }
   const data = JSON.parse(s.data || '{}');
   const settings = layout.settings || {};
-  if (settings.showHeader !== false) header(doc);
+  if (settings.showHeader !== false) header(doc, THEMES.modern, settings.header || null);
 
   const fieldsById = {};
   for (const sec of s.activation?.template?.sections || []) {
@@ -413,6 +456,7 @@ function drawCustomPdf(doc, s) {
       const rows = Math.ceil(fields.length / cols);
       const rowH = Math.max(9, (h - titleH) / rows);
       const cellW = w / cols;
+      const gStyle = el.labelStyle || (el.showLabels === false ? 'hidden' : 'above');
       fields.forEach((f, idx) => {
         const col = Math.floor(idx / rows), row = idx % rows;
         const fx = x + col * cellW + 1, fy = y + titleH + row * rowH, fw = cellW - 8;
@@ -421,18 +465,7 @@ function drawCustomPdf(doc, s) {
         const display = Array.isArray(v) ? v.join(', ')
           : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
           : v != null && v !== '' ? String(v) : '—';
-        let vy = fy;
-        if (el.showLabels !== false && rowH >= 14) {
-          const lfs = Math.max(4.5, fs * 0.7);
-          doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
-            .text(f.label, fx, fy + 1, { width: fw, height: lfs + 2, ellipsis: true, lineBreak: false });
-          vy = fy + lfs + 3;
-        }
-        doc.fontSize(fs).font(el.bold ? 'Helvetica-Bold' : 'Helvetica').fillColor('#111827')
-          .text(display, fx, vy, { width: fw, height: Math.max(fs + 2, fy + rowH - vy - 2), ellipsis: true });
-        if (el.underline !== false) {
-          doc.moveTo(fx, fy + rowH - 1.5).lineTo(fx + fw, fy + rowH - 1.5).lineWidth(0.35).strokeColor('#d1d5db').stroke();
-        }
+        fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);
       });
     } else if (el.kind === 'field') {
       const f = fieldsById[el.fieldId];
@@ -441,16 +474,8 @@ function drawCustomPdf(doc, s) {
       const display = Array.isArray(v) ? v.join(', ')
         : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
         : v != null && v !== '' ? String(v) : '—';
-      let vy = y;
-      if (el.showLabel !== false) {
-        const lfs = Math.max(4.5, fs * 0.72);
-        doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
-          .text(el.labelText || f.label, x + 1, y, { width: w - 2, height: lfs + 2, ellipsis: true, lineBreak: false, align });
-        vy = y + lfs + 2.5;
-      }
-      doc.fontSize(fs).font(font).fillColor(color)
-        .text(display, x + 1, vy, { width: w - 2, height: Math.max(fs + 2, h - (vy - y)), ellipsis: true, align });
-      if (el.underline) doc.moveTo(x, y + h).lineTo(x + w, y + h).lineWidth(0.5).strokeColor('#9ca3af').stroke();
+      const fStyle = el.labelStyle || (el.showLabel === false ? 'hidden' : 'above');
+      fieldCell(doc, { x: x + 1, y, w: w - 2, h, fs, bold: el.bold, color, align, labelStyle: fStyle, underline: !!el.underline }, el.labelText || f.label, display);
     } else if (el.kind === 'text') {
       const text = String(el.text || '').replace(/\{\{(\w+)\}\}/g, (_, k) => meta[k] ?? '');
       doc.fontSize(fs).font(font).fillColor(color).text(text, x + 1, y, { width: w - 2, height: h, ellipsis: true, align });

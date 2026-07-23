@@ -575,6 +575,27 @@ router.get('/export/pdf', requirePerm('export'), async (req, res) => {
   doc.end();
 });
 
+// ---------- School logo (used in headers & PDFs) ----------
+const logoUpload = require('multer')({
+  storage: require('multer').memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => (['image/jpeg', 'image/png'].includes(file.mimetype) ? cb(null, true) : cb(new Error('Logo must be JPG or PNG'))),
+});
+router.post('/settings/logo', requirePerm('settings', 'forms'), (req, res) => {
+  logoUpload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file received' });
+    const fs = require('fs');
+    const path = require('path');
+    const dir = path.join(__dirname, '..', 'assets');
+    fs.mkdirSync(dir, { recursive: true });
+    const ext = req.file.mimetype === 'image/png' ? 'png' : 'jpg';
+    for (const old of ['logo.png', 'logo.jpg']) { try { fs.unlinkSync(path.join(dir, old)); } catch {} }
+    fs.writeFileSync(path.join(dir, 'logo.' + ext), req.file.buffer);
+    res.json({ ok: true });
+  });
+});
+
 // ---------- Settings (SMS / Email / Razorpay) ----------
 const settingsService = require('../services/settings');
 

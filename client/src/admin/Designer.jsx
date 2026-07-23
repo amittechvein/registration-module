@@ -26,8 +26,9 @@ export default function Designer() {
   const navigate = useNavigate();
   const [template, setTemplate] = useState(null);
   const [elements, setElements] = useState([]);
-  const [settings, setSettings] = useState({ showHeader: true, topSpace: 100 });
-  const [selId, setSelId] = useState(null);
+  const [settings, setSettings] = useState({ showHeader: true, topSpace: 100, header: {} });
+  const [selId, setSelId] = useState(null); // element id or '__header'
+  const [logoVer, setLogoVer] = useState(0); // cache-buster after logo upload
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('sections');
   const [palSec, setPalSec] = useState(null);
@@ -68,8 +69,13 @@ export default function Designer() {
       let layout = null;
       try { layout = JSON.parse(r.data.layout || 'null'); } catch {}
       if (layout?.elements?.length) {
-        setElements(layout.elements.map((e) => ({ id: uid(), ...e })));
-        setSettings({ showHeader: true, topSpace: 100, ...(layout.settings || {}) });
+        setElements(layout.elements.map((e) => ({
+          id: uid(), ...e,
+          // migrate old boolean label props to the 3-way labelStyle
+          ...(e.kind === 'group' ? { labelStyle: e.labelStyle || (e.showLabels === false ? 'hidden' : 'above') } : {}),
+          ...(e.kind === 'field' ? { labelStyle: e.labelStyle || (e.showLabel === false ? 'hidden' : 'above') } : {}),
+        })));
+        setSettings({ showHeader: true, topSpace: 100, header: {}, ...(layout.settings || {}) });
       } else {
         autoLayout(r.data);
       }
@@ -219,6 +225,50 @@ export default function Designer() {
     setElements((els) => [...els, copy]);
     setSelId(copy.id);
   };
+  /** Ungroup: turn a section block into freely-adjustable individual elements. */
+  const ungroup = () => {
+    const g = elsRef.current.find((e) => e.id === selId && e.kind === 'group');
+    if (!g) return;
+    const sec = sections.find((s) => s.id === g.sectionId);
+    if (!sec) return;
+    pushHist();
+    const fields = (sec.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    const fs = Math.max(6, g.fontSize);
+    const titleH = fs + 8;
+    const cols = Math.max(1, Math.min(3, Number(g.cols) || 1));
+    const rows = Math.ceil(Math.max(1, fields.length) / cols);
+    const rowH = Math.max(9, (g.h - titleH) / rows);
+    const cellW = g.w / cols;
+    const newEls = [
+      { id: uid(), kind: 'text', text: g.title || sec.title, x: g.x, y: g.y, w: g.w, h: titleH, fontSize: fs + 1, bold: true, color: g.color, align: g.align || 'left' },
+      ...fields.map((f, idx) => {
+        const col = Math.floor(idx / rows), row = idx % rows;
+        return {
+          id: uid(), kind: 'field', fieldId: f.id,
+          x: Math.round(g.x + col * cellW), y: Math.round(g.y + titleH + row * rowH),
+          w: Math.round(cellW - 8), h: Math.round(rowH),
+          fontSize: fs, bold: !!g.bold, color: '#111827', align: 'left',
+          labelStyle: g.labelStyle || 'above', underline: g.underline !== false,
+        };
+      }),
+    ];
+    setElements((els) => [...els.filter((e) => e.id !== g.id), ...newEls]);
+    setSelId(null);
+    setMsg({ type: 'ok', text: `Ungrouped "${sec.title}" — every field is now individually adjustable.` });
+  };
+
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await adminApi.post('/settings/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setLogoVer((v) => v + 1);
+      setMsg({ type: 'ok', text: 'Logo updated — it now prints on all PDFs and shows in the header.' });
+    } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); }
+  };
+  const upHeader = (patch) => setSettings((s) => ({ ...s, header: { ...(s.header || {}), ...patch } }));
+
   const reorder = (dir) => {
     pushHist();
     setElements((els) => {
@@ -269,12 +319,18 @@ export default function Designer() {
           {el.title || sec.title}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoFlow: 'column', gridTemplateRows: `repeat(${rows}, ${rowH}px)`, columnGap: 6 }}>
-          {fields.map((f) => (
-            <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none' }}>
-              {el.showLabels !== false && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>{f.label}</div>}
-              <div style={{ fontSize: fs, color: '#111827', fontWeight: el.bold ? 700 : 400, lineHeight: 1.1 }}>value…</div>
-            </div>
-          ))}
+          {fields.map((f) => {
+            const ls = el.labelStyle || 'above';
+            return (
+              <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none' }}>
+                {ls === 'above' && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>{f.label}</div>}
+                <div style={{ fontSize: fs, color: '#111827', fontWeight: el.bold ? 700 : 400, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  {ls === 'inline' && <span style={{ color: '#6b7280', fontWeight: 400 }}>{f.label}: </span>}
+                  value…
+                </div>
+              </div>
+            );
+          })}
         </div>
       </>
     );
@@ -322,6 +378,36 @@ export default function Designer() {
           {sel ? `Selected: ${sel.kind === 'group' ? (sections.find((s) => s.id === sel.sectionId) || {}).title : sel.kind === 'field' ? fieldLabel(sel) : sel.kind} · x${sel.x} y${sel.y} · ${sel.w}×${sel.h}` : 'Click an element to style it — a toolbar appears above it'}
         </span>
       </div>
+
+      {selId === '__header' && settings.showHeader && (
+        <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap', padding: '12px 16px', borderLeft: '4px solid #b91c1c' }}>
+          <b style={{ alignSelf: 'center' }}>✏ School Header</b>
+          <label className="fld" style={{ margin: 0, width: 220 }}>School name (line 1)
+            <input type="text" value={settings.header?.name || ''} placeholder="(default from server settings)" onChange={(e) => upHeader({ name: e.target.value })} />
+          </label>
+          <label className="fld" style={{ margin: 0, width: 260 }}>Address (line 2)
+            <input type="text" value={settings.header?.address || ''} placeholder="(default from server settings)" onChange={(e) => upHeader({ address: e.target.value })} />
+          </label>
+          <label className="fld" style={{ margin: 0, width: 240 }}>Extra line 3 (phone / affiliation — optional)
+            <input type="text" value={settings.header?.line3 || ''} placeholder="e.g. Ph: 0353-2545678 · Affiliated to ICSE" onChange={(e) => upHeader({ line3: e.target.value })} />
+          </label>
+          <label className="fld" style={{ margin: 0, width: 110 }}>Alignment
+            <select value={settings.header?.align || 'left'} onChange={(e) => upHeader({ align: e.target.value })}>
+              <option value="left">Left</option><option value="center">Center</option>
+            </select>
+          </label>
+          <label className="fld" style={{ margin: 0 }}>Name color
+            <input type="color" value={settings.header?.nameColor || '#b91c1c'} style={{ width: 46, height: 32, padding: 2 }} onChange={(e) => upHeader({ nameColor: e.target.value })} />
+          </label>
+          <label className="check" style={{ margin: '0 0 6px' }}>
+            <input type="checkbox" checked={settings.header?.showLogo !== false} onChange={(e) => upHeader({ showLogo: e.target.checked })} /> logo
+          </label>
+          <label className="btn ghost" style={{ cursor: 'pointer' }}>
+            ⬆ Upload logo<input type="file" accept=".png,.jpg,.jpeg" hidden onChange={(e) => uploadLogo(e.target.files?.[0])} />
+          </label>
+          <button className="btn small ghost" onClick={() => setSelId(null)}>Done</button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
         {/* Canva-style dark sidebar */}
@@ -390,7 +476,27 @@ export default function Designer() {
               onDrop={canvasDrop}
             >
               {settings.showHeader ? (
-                <div className="dc-header">SCHOOL HEADER (logo + name prints here)</div>
+                <div
+                  className={`cv-header ${selId === '__header' ? 'sel' : ''}`}
+                  style={{ textAlign: settings.header?.align === 'center' ? 'center' : 'left' }}
+                  onMouseDown={(e) => { e.stopPropagation(); setSelId('__header'); }}
+                  title="Click to edit the header"
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: settings.header?.align === 'center' ? 'center' : 'flex-start' }}>
+                    {settings.header?.showLogo !== false && (
+                      <img src={`/api/public/logo?v=${logoVer}`} alt="" style={{ height: 40 }} onError={(e) => { e.target.style.display = 'none'; }} />
+                    )}
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: settings.header?.nameColor || '#b91c1c' }}>
+                        {settings.header?.name || 'School name (from settings)'}
+                      </div>
+                      <div style={{ fontSize: 8.5, color: '#6b7280' }}>{settings.header?.address || 'Address line'}</div>
+                      {settings.header?.line3 && <div style={{ fontSize: 8.5, color: '#6b7280' }}>{settings.header.line3}</div>}
+                    </div>
+                  </div>
+                  <div style={{ borderTop: `2px solid ${settings.header?.nameColor || '#b91c1c'}`, marginTop: 5 }} />
+                  <div className="cv-header-hint">✏ click to edit header</div>
+                </div>
               ) : settings.topSpace > 0 ? (
                 <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt</div>
               ) : null}
@@ -413,8 +519,11 @@ export default function Designer() {
                   {el.kind === 'group' && <GroupPreview el={el} />}
                   {el.kind === 'field' && (
                     <>
-                      {el.showLabel !== false && <div className="dc-label">{fieldLabel(el)}</div>}
-                      <div className="dc-value" style={{ borderBottom: el.underline ? '1px solid #9ca3af' : 'none' }}>value…</div>
+                      {(el.labelStyle || 'above') === 'above' && <div className="dc-label">{fieldLabel(el)}</div>}
+                      <div className="dc-value" style={{ borderBottom: el.underline ? '1px solid #9ca3af' : 'none' }}>
+                        {el.labelStyle === 'inline' && <span style={{ color: '#6b7280', fontWeight: 400 }}>{fieldLabel(el)}: </span>}
+                        value…
+                      </div>
                     </>
                   )}
                   {(el.kind === 'text' || el.kind === 'signature') && (
@@ -471,8 +580,14 @@ export default function Designer() {
                     <option value={1}>1 col</option><option value={2}>2 col</option><option value={3}>3 col</option>
                   </select>
                 )}
-                {sel.kind === 'group' && <button className={sel.showLabels !== false ? 'on' : ''} onClick={() => update({ showLabels: sel.showLabels === false })} title="Field labels">🏷</button>}
-                {sel.kind === 'field' && <button className={sel.showLabel !== false ? 'on' : ''} onClick={() => update({ showLabel: sel.showLabel === false })} title="Label">🏷</button>}
+                {(sel.kind === 'group' || sel.kind === 'field') && (
+                  <select value={sel.labelStyle || 'above'} title="Label style" onChange={(e) => update({ labelStyle: e.target.value })}>
+                    <option value="above">Label above</option>
+                    <option value="inline">Label: value</option>
+                    <option value="hidden">Value only</option>
+                  </select>
+                )}
+                {sel.kind === 'group' && <button onClick={ungroup} title="Ungroup — make every field adjustable">⛓✂</button>}
                 <button onClick={duplicateSel} title="Duplicate (Ctrl+D)">⧉</button>
                 <button onClick={() => reorder('front')} title="Bring to front">▲</button>
                 <button onClick={() => reorder('back')} title="Send to back">▼</button>
