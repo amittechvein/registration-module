@@ -32,6 +32,13 @@ h3 { font-weight: 700; letter-spacing: -.01em; }
 .sidebar a:hover { background: #f1f3f4; }
 .sidebar a.active { background: #d3e3fd; color: #0b57d0; font-weight: 700; }
 .nav-ico { font-size: 13.5px; width: 29px; height: 29px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nav-lbl { white-space: nowrap; overflow: hidden; }
+.nav-burger { border: none; background: transparent; font-size: 17px; color: #3c4043; cursor: pointer; padding: 5px 9px; border-radius: 8px; margin-right: 2px; }
+.nav-burger:hover { background: #f1f3f4; }
+.sidebar { transition: width .18s ease; }
+.sidebar.collapsed { width: 58px; padding: 11px 6px; }
+.sidebar.collapsed a { justify-content: center; padding: 5px; gap: 0; }
+.sidebar.collapsed .nav-lbl { display: none; }
 .main { flex: 1; padding: 16px 22px; max-width: 1320px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; gap: 12px; flex-wrap: wrap; }
 

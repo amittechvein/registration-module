@@ -11,8 +11,8 @@ const GROUPS = [
     hint: 'Infobip is used when username & password are set. The OTP template must exactly match your DLT-registered template ({{otp}} is replaced with the code). Turn OFF "Show OTP on screen" before going live.',
   },
   {
-    id: 'email', title: 'Email (SMTP)',
-    hint: 'Any SMTP provider works (Gmail: smtp.gmail.com, port 587, app password). Leave empty to log emails to the server console instead of sending.',
+    id: 'email', title: 'Email',
+    hint: 'RECOMMENDED: create a free account at brevo.com (300 emails/day) → Settings → SMTP & API → API Keys → paste the key below — this works even when the server\'s SMTP ports are blocked. The From Address must be a verified sender in Brevo. SMTP fields are the fallback if you prefer your own mail server.',
   },
   {
     id: 'auth', title: 'Login Options (Google Sign-In)',

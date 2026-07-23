@@ -15,6 +15,12 @@ const NAV = [
 export default function AdminLayout() {
   const navigate = useNavigate();
   const [school, setSchool] = useState({ name: '' });
+  const [navOpen, setNavOpen] = useState(localStorage.getItem('navOpen') !== '0');
+  const toggleNav = () => {
+    const next = !navOpen;
+    setNavOpen(next);
+    localStorage.setItem('navOpen', next ? '1' : '0');
+  };
   useEffect(() => { publicApi.get('/school-info').then((r) => setSchool(r.data)).catch(() => {}); }, []);
   if (!sessionStorage.getItem('adminToken')) return <Navigate to="/admin/login" />;
   const name = sessionStorage.getItem('adminName') || 'Admin';
@@ -24,6 +30,7 @@ export default function AdminLayout() {
     <div className="app-shell">
       <header className="app-top">
         <div className="app-top-brand">
+          <button className="nav-burger" onClick={toggleNav} title={navOpen ? 'Hide menu' : 'Show menu'}>☰</button>
           <img src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
           <div>
             <b>{school.name || 'Admissions'}</b>
@@ -46,10 +53,11 @@ export default function AdminLayout() {
         </div>
       </header>
       <div className="app-body">
-        <aside className="sidebar">
+        <aside className={`sidebar ${navOpen ? '' : 'collapsed'}`}>
           {NAV.filter((n) => !n.perm || hasPerm(n.perm)).map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end}>
-              <span className="nav-ico" style={{ background: n.bubble }}>{n.icon}</span>{n.label}
+            <NavLink key={n.to} to={n.to} end={n.end} title={n.label}>
+              <span className="nav-ico" style={{ background: n.bubble }}>{n.icon}</span>
+              <span className="nav-lbl">{n.label}</span>
             </NavLink>
           ))}
         </aside>

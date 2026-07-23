@@ -9,6 +9,27 @@ function renderTemplate(tpl, vars) {
 async function sendEmail(to, subject, body) {
   if (!to) return false;
   const cfg = await getConfig();
+
+  // Brevo HTTP API (port 443) — works even where SMTP ports are blocked (e.g. new Linode accounts)
+  if (cfg.BREVO_API_KEY) {
+    try {
+      const from = cfg.SMTP_FROM || 'Admissions <admissions@example.com>';
+      const m = from.match(/^(.*)<(.+)>$/);
+      const sender = m ? { name: m[1].trim().replace(/^"|"$/g, ''), email: m[2].trim() } : { email: from.trim() };
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': cfg.BREVO_API_KEY },
+        body: JSON.stringify({ sender, to: [{ email: to }], subject, textContent: body }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) console.error('[email:brevo] response:', (await res.text()).slice(0, 300));
+      return res.ok;
+    } catch (e) {
+      console.error('[email:brevo] send failed:', e.message);
+      return false;
+    }
+  }
+
   if (cfg.SMTP_HOST) {
     try {
       const transporter = nodemailer.createTransport({
@@ -16,6 +37,8 @@ async function sendEmail(to, subject, body) {
         port: Number(cfg.SMTP_PORT || 587),
         secure: Number(cfg.SMTP_PORT) === 465,
         auth: cfg.SMTP_USER ? { user: cfg.SMTP_USER, pass: cfg.SMTP_PASS } : undefined,
+        // fail fast instead of hanging into a gateway timeout when ports are blocked
+        connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 12000,
       });
       await transporter.sendMail({ from: cfg.SMTP_FROM || 'admissions@example.com', to, subject, text: body });
       return true;

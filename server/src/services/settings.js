@@ -20,6 +20,8 @@ const SETTING_DEFS = [
   { key: 'DEV_SHOW_OTP', group: 'sms', label: 'Show OTP on screen (testing mode)', secret: false },
   // Login options
   { key: 'GOOGLE_CLIENT_ID', group: 'auth', label: 'Google OAuth Client ID', secret: false },
+  // Email (Brevo API — recommended, works even when SMTP ports are blocked)
+  { key: 'BREVO_API_KEY', group: 'email', label: 'Brevo API Key (recommended)', secret: true },
   // Email (SMTP)
   { key: 'SMTP_HOST', group: 'email', label: 'SMTP Host', secret: false },
   { key: 'SMTP_PORT', group: 'email', label: 'SMTP Port', secret: false },
