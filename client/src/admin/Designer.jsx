@@ -50,6 +50,12 @@ export default function Designer() {
   const GRID = 5;
   const gsnap = (v) => (snapOn ? Math.round(v / GRID) * GRID : Math.round(v));
 
+  // Opt out of the global 85% zoom — drag/resize math needs 1:1 pixels here
+  useEffect(() => {
+    document.body.classList.add('designer-page');
+    return () => document.body.classList.remove('designer-page');
+  }, []);
+
   const sections = (template?.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
   const allFields = sections.flatMap((s) => (s.fields || []).map((f) => ({ ...f, sectionTitle: s.title })));
   const usedFieldIds = new Set(elements.filter((e) => e.kind === 'field').map((e) => e.fieldId));
@@ -329,11 +335,29 @@ export default function Designer() {
     const x1 = Math.min(...loose.map((e) => e.x)), y1 = Math.min(...loose.map((e) => e.y));
     const x2 = Math.max(...loose.map((e) => e.x + e.w)), y2 = Math.max(...loose.map((e) => e.y + e.h));
     const w = Math.max(120, x2 - x1), h = Math.max(40, y2 - y1 + 16);
+    // Preserve the styling you applied while ungrouped: take the most common
+    // value of each style across the loose fields (alignment, font, labels…)
+    const most = (key, fallback) => {
+      const counts = {};
+      for (const e of loose) {
+        const v = e[key] !== undefined ? e[key] : fallback;
+        counts[JSON.stringify(v)] = (counts[JSON.stringify(v)] || 0) + 1;
+      }
+      const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      return best ? JSON.parse(best[0]) : fallback;
+    };
+    // estimate columns from how the loose fields were arranged
+    const distinctX = [...new Set(loose.map((e) => Math.round(e.x / 20)))].length;
     const group = {
       id: uid(), kind: 'group', sectionId: sec.id, page: f.page || 1,
       x: x1, y: Math.max(0, y1 - 16), w, h,
-      fontSize: f.fontSize || 8, cols: w > 400 ? 2 : 1,
-      labelStyle: f.labelStyle || 'above', underline: f.underline !== false, color: '#1e3a8a', align: 'left',
+      fontSize: most('fontSize', 8),
+      cols: Math.max(1, Math.min(3, distinctX > 1 ? distinctX : w > 400 ? 2 : 1)),
+      labelStyle: most('labelStyle', 'above'),
+      underline: most('underline', true),
+      bold: most('bold', false),
+      align: most('align', 'left'),
+      color: '#1e3a8a',
     };
     setElements((els) => [...els.filter((e) => !(e.kind === 'field' && secFieldIds.has(e.fieldId) && (e.page || 1) === (f.page || 1))), group]);
     setSelId(group.id);
@@ -424,7 +448,7 @@ export default function Designer() {
           {fields.map((f) => {
             const ls = el.labelStyle || 'above';
             return (
-              <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none' }}>
+              <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none', textAlign: el.align || 'left' }}>
                 {ls === 'above' && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>{f.label}</div>}
                 <div style={{ fontSize: fs, color: '#111827', fontWeight: el.bold ? 700 : 400, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                   {ls === 'inline' && <span style={{ color: '#6b7280', fontWeight: 400 }}>{f.label}: </span>}

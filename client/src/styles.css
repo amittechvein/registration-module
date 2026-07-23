@@ -7,6 +7,11 @@
   --shadow-md: 0 6px 18px -4px rgba(16,24,40,.10), 0 2px 6px -2px rgba(16,24,40,.06);
 }
 body { margin: 0; font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+/* Global density: the layout reads best around 85% on desktop.
+   The PDF designer opts out (drag math needs 1:1 pixels). */
+@media (min-width: 900px) {
+  body:not(.designer-page) { zoom: 0.85; }
+}
 a { color: var(--brand); text-decoration: none; }
 h1 { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
 h1, h2, h3 { margin: 0 0 8px; }

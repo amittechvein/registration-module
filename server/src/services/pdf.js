@@ -503,7 +503,7 @@ function renderCustomElements(doc, s, elements, data, settings) {
         const display = Array.isArray(v) ? v.join(', ')
           : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
           : v != null && v !== '' ? String(v) : '—';
-        fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);
+        fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: el.align || 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);
       });
     } else if (el.kind === 'field') {
       const f = fieldsById[el.fieldId];
