@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { publicApi } from '../lib/api.js';
+import PubShell from '../components/PubShell.jsx';
 
 export default function Home() {
   const [forms, setForms] = useState([]);
@@ -8,7 +9,7 @@ export default function Home() {
   useEffect(() => { publicApi.get('/forms').then((r) => setForms(r.data)).catch(() => {}).finally(() => setLoaded(true)); }, []);
 
   return (
-    <div className="pub-wrap">
+    <PubShell>
       <div className="pub-header">
         <div className="pub-brand">
           <img className="pub-logo" src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
@@ -16,9 +17,6 @@ export default function Home() {
             <h1>Admissions Portal</h1>
             <p style={{ opacity: 0.92, margin: 0, fontSize: 14 }}>Apply online in minutes — fill the form, pay securely, track your status anytime.</p>
           </div>
-        </div>
-        <div className="pub-nav">
-          <Link to="/track">📋 Track my application</Link>
         </div>
       </div>
 
@@ -42,6 +40,6 @@ export default function Home() {
           Log in anytime with your mobile number to continue a saved draft, download your form and payment receipt, or message the school.
         </div>
       </div>
-    </div>
+    </PubShell>
   );
 }

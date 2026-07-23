@@ -51,6 +51,14 @@ router.get('/forms/:slug', async (req, res) => {
   });
 });
 
+// School identity for the portal chrome
+router.get('/school-info', (_req, res) => {
+  res.json({
+    name: process.env.SCHOOL_NAME || 'Nirmala Convent School, Siliguri',
+    address: process.env.SCHOOL_ADDRESS || '3rd Mile, Sevoke Road, Ward 42, Siliguri, West Bengal 734008',
+  });
+});
+
 // School logo (public — shown on portal & designer preview)
 router.get('/logo', (_req, res) => {
   const fs = require('fs');

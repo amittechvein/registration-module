@@ -19,10 +19,10 @@ export default function Dashboard() {
       </div>
 
       <div className="grid cols-4">
-        <div className="stat"><div className="lbl">Forms Submitted</div><div className="num">{d.totals.totalSubmitted}</div></div>
-        <div className="stat"><div className="lbl">Drafts In Progress</div><div className="num">{d.totals.totalDrafts}</div></div>
-        <div className="stat"><div className="lbl">Fees Collected</div><div className="num">₹{d.totals.feeCollected.toLocaleString('en-IN')}</div></div>
-        <div className="stat"><div className="lbl">Students Allotted</div><div className="num">{d.totals.studentsAllotted}</div></div>
+        <div className="stat" style={{ '--accent': '#2563eb' }}><div className="stat-ico">📥</div><div className="lbl">Forms Submitted</div><div className="num">{d.totals.totalSubmitted}</div></div>
+        <div className="stat" style={{ '--accent': '#d97706' }}><div className="stat-ico">✏️</div><div className="lbl">Drafts In Progress</div><div className="num">{d.totals.totalDrafts}</div></div>
+        <div className="stat" style={{ '--accent': '#16a34a' }}><div className="stat-ico">💰</div><div className="lbl">Fees Collected</div><div className="num">₹{d.totals.feeCollected.toLocaleString('en-IN')}</div></div>
+        <div className="stat" style={{ '--accent': '#7c3aed' }}><div className="stat-ico">🎓</div><div className="lbl">Students Allotted</div><div className="num">{d.totals.studentsAllotted}</div></div>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>

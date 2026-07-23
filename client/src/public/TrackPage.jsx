@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { publicApi, errMsg, downloadBlob } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
+import PubShell from '../components/PubShell.jsx';
 
 export default function TrackPage() {
   const [loggedIn, setLoggedIn] = useState(!!sessionStorage.getItem('applicantToken'));
@@ -27,7 +28,7 @@ export default function TrackPage() {
   };
 
   return (
-    <div className="pub-wrap">
+    <PubShell>
       <div className="pub-header">
         <div className="pub-brand">
           <img className="pub-logo" src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
@@ -35,9 +36,6 @@ export default function TrackPage() {
             <h1>Track Your Application</h1>
             <div style={{ opacity: 0.92, fontSize: 14 }}>Login with the mobile number you used to apply</div>
           </div>
-        </div>
-        <div className="pub-nav">
-          <Link to="/">← All forms</Link>
         </div>
       </div>
       {err && <div className="alert err">{err}</div>}
@@ -106,6 +104,6 @@ export default function TrackPage() {
           )}
         </>
       )}
-    </div>
+    </PubShell>
   );
 }

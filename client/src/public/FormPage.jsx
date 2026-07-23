@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { publicApi, errMsg } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
+import PubShell from '../components/PubShell.jsx';
 
 const isImageName = (n) => /\.(jpe?g|png|webp)$/i.test(n || '');
 
@@ -333,17 +334,17 @@ export default function FormPage() {
   };
 
   if (closed) return (
-    <div className="pub-wrap"><div className="pub-header"><h1>{closed}</h1></div>
+    <PubShell><div className="pub-header"><h1>{closed}</h1></div>
       <div className="alert err">This form is currently closed for submissions.</div>
       <Link to="/">← All forms</Link>
-    </div>
+    </PubShell>
   );
-  if (!form) return <div className="pub-wrap">{err ? <div className="alert err">{err}</div> : 'Loading…'}</div>;
+  if (!form) return <PubShell>{err ? <div className="alert err">{err}</div> : 'Loading…'}</PubShell>;
 
   const alreadySubmitted = draftInfo && !draftInfo.isDraft;
 
   return (
-    <div className="pub-wrap">
+    <PubShell>
       <div className="pub-header">
         <div className="pub-brand">
           <img className="pub-logo" src="/api/public/logo" alt="" onError={(e) => { e.target.style.display = 'none'; }} />
@@ -351,10 +352,6 @@ export default function FormPage() {
             <h1>{form.title}</h1>
             <div style={{ opacity: 0.92, fontSize: 14 }}>{form.className} · Session {form.session} {Number(form.price) > 0 && <> · Form fee ₹{Number(form.price).toFixed(0)}</>}</div>
           </div>
-        </div>
-        <div className="pub-nav">
-          <Link to="/">← All forms</Link>
-          <Link to="/track">📋 Track application</Link>
         </div>
       </div>
 
@@ -390,6 +387,6 @@ export default function FormPage() {
           hadDraft={!!draftInfo?.isDraft}
         />
       )}
-    </div>
+    </PubShell>
   );
 }

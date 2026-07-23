@@ -27,9 +27,11 @@ export default function Login() {
   };
 
   return (
+    <div className="login-page">
     <div className="login-box card">
-      <h2>Admin Login</h2>
-      <p className="muted">Registration module administration</p>
+      <img src="/api/public/logo" alt="" style={{ height: 62, display: 'block', margin: '0 auto 10px' }} onError={(e) => { e.target.style.display = 'none'; }} />
+      <h2 style={{ textAlign: 'center' }}>Admissions Admin</h2>
+      <p className="muted" style={{ textAlign: 'center' }}>Sign in to manage registrations</p>
       {err && <div className="alert err">{err}</div>}
       <form onSubmit={submit}>
         <label className="fld">Email
@@ -41,6 +43,7 @@ export default function Login() {
         <button className="btn" style={{ width: '100%' }}>Sign in</button>
       </form>
       <GoogleButton onCredential={google} />
+    </div>
     </div>
   );
 }
