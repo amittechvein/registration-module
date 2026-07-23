@@ -48,6 +48,7 @@ export default function Activations() {
                     <option value="elegant">Elegant</option>
                     <option value="card">Card</option>
                     <option value="mono">Mono</option>
+                    <option value="custom">Custom (designed)</option>
                   </select>
                 </td>
                 <td><span className={`pill ${a.active ? 'on' : 'off'}`}>{a.active ? 'Active' : 'Inactive'}</span></td>

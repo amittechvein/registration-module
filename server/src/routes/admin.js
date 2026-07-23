@@ -194,6 +194,14 @@ router.post('/templates', requirePerm('forms'), async (req, res) => {
   }
 });
 
+// Save the canvas-designed PDF layout for a template
+router.post('/templates/:id/layout', requirePerm('forms'), async (req, res) => {
+  const t = await FormTemplate.findByPk(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  await t.update({ layout: JSON.stringify(req.body.layout || null) });
+  res.json({ ok: true });
+});
+
 router.delete('/templates/:id', requirePerm('forms'), async (req, res) => {
   const used = await FormActivation.count({ where: { templateId: req.params.id } });
   if (used) return res.status(400).json({ error: 'Template is used by an active form; deactivate instead' });
@@ -281,7 +289,7 @@ router.post('/activations', requirePerm('forms'), async (req, res) => {
 
 // Quick switch of the PDF download template from the list page
 router.post('/activations/:id/pdf-template', requirePerm('forms'), async (req, res) => {
-  const VALID = ['modern', 'classic', 'elegant', 'card', 'mono'];
+  const VALID = ['modern', 'classic', 'elegant', 'card', 'mono', 'custom'];
   if (!VALID.includes(req.body.pdfTemplate)) return res.status(400).json({ error: 'Invalid template' });
   const a = await FormActivation.findByPk(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });

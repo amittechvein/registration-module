@@ -15,6 +15,7 @@ import SubmissionDetail from './admin/SubmissionDetail.jsx';
 import Students from './admin/Students.jsx';
 import Settings from './admin/Settings.jsx';
 import Users from './admin/Users.jsx';
+import Designer from './admin/Designer.jsx';
 
 import Home from './public/Home.jsx';
 import FormPage from './public/FormPage.jsx';
@@ -33,6 +34,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="templates" element={<Templates />} />
           <Route path="templates/new" element={<TemplateBuilder />} />
           <Route path="templates/:id" element={<TemplateBuilder />} />
+          <Route path="templates/:id/design" element={<Designer />} />
           <Route path="activations" element={<Activations />} />
           <Route path="activations/new" element={<ActivationForm />} />
           <Route path="activations/:id" element={<ActivationForm />} />

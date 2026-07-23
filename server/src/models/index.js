@@ -43,6 +43,7 @@ const FormTemplate = sequelize.define('FormTemplate', {
   name: { type: DataTypes.STRING, allowNull: false },
   description: DataTypes.TEXT,
   active: { type: DataTypes.BOOLEAN, defaultValue: true },
+  layout: { type: DataTypes.TEXT }, // JSON: canvas-designed PDF layout {settings, elements}
 });
 
 const FormSection = sequelize.define('FormSection', {

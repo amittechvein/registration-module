@@ -173,6 +173,7 @@ export default function ActivationForm() {
             <option value="elegant">Elegant — serif fonts, maroon & gold, formal certificate feel</option>
             <option value="card">Card — soft blue section cards with striped rows</option>
             <option value="mono">Mono — pure black & white, best for photocopying</option>
+            <option value="custom">Custom — your own layout from the PDF Layout Designer</option>
           </select>
         </label>
       </div>

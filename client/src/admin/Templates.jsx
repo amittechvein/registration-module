@@ -38,8 +38,9 @@ export default function Templates() {
                   <td>{fields.length}</td>
                   <td>{fields.filter((f) => f.studentField).length} linked to student profile</td>
                   <td><span className={`pill ${t.active ? 'on' : 'off'}`}>{t.active ? 'Active' : 'Inactive'}</span></td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <Link className="btn small ghost" to={`/admin/templates/${t.id}`}>Edit</Link>{' '}
+                    <Link className="btn small ghost" to={`/admin/templates/${t.id}/design`}>🎨 Design PDF</Link>{' '}
                     <button className="btn small danger" onClick={() => remove(t.id)}>Delete</button>
                   </td>
                 </tr>

@@ -362,10 +362,83 @@ function drawClassicPdf(doc, s) {
   doc.text('Authorised Signatory', R - 130, fy + 30, { width: 130, align: 'center', lineBreak: false });
 }
 
+/* ----------------------- custom (canvas-designed) ----------------------- */
+/** Renders the layout designed in Admin → Form Templates → Design PDF Layout.
+ *  Canvas coordinates are 1:1 PDF points on an A4 page (595 × 842). */
+function drawCustomPdf(doc, s) {
+  let layout = null;
+  try { layout = JSON.parse(s.activation?.template?.layout || 'null'); } catch {}
+  if (!layout || !Array.isArray(layout.elements) || !layout.elements.length) {
+    return drawFlowPdf(doc, s, THEMES.modern); // nothing designed yet → fallback
+  }
+  const data = JSON.parse(s.data || '{}');
+  const settings = layout.settings || {};
+  if (settings.showHeader !== false) header(doc);
+
+  const fieldsById = {};
+  for (const sec of s.activation?.template?.sections || []) {
+    for (const f of sec.fields || []) fieldsById[f.id] = f;
+  }
+  const photoBuf = findImage(s, data, (l) => l.includes('student photo'));
+  const sigBuf = findImage(s, data, (l) => l.includes('signature'));
+
+  const meta = {
+    form_no: s.formNo || '', status: s.status?.name || '',
+    class: s.activation?.classRoom?.name || '', session: s.activation?.session?.name || '',
+    form: s.activation?.title || '',
+    date: s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('en-IN') : '',
+    applicant_phone: s.applicant?.phone || '', applicant_name: s.applicant?.name || '',
+  };
+
+  for (const el of layout.elements) {
+    const x = Number(el.x) || 0, y = Number(el.y) || 0;
+    const w = Math.max(10, Number(el.w) || 100), h = Math.max(8, Number(el.h) || 20);
+    if (y > 815) continue; // keep on the single designed page
+    const fs = Math.max(5, Number(el.fontSize) || 8);
+    const color = el.color || '#111827';
+    const font = el.bold ? 'Helvetica-Bold' : 'Helvetica';
+    const align = el.align || 'left';
+
+    if (el.kind === 'field') {
+      const f = fieldsById[el.fieldId];
+      if (!f) continue;
+      const v = data[el.fieldId];
+      const display = Array.isArray(v) ? v.join(', ')
+        : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
+        : v != null && v !== '' ? String(v) : '—';
+      let vy = y;
+      if (el.showLabel !== false) {
+        const lfs = Math.max(4.5, fs * 0.72);
+        doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
+          .text(el.labelText || f.label, x + 1, y, { width: w - 2, height: lfs + 2, ellipsis: true, lineBreak: false, align });
+        vy = y + lfs + 2.5;
+      }
+      doc.fontSize(fs).font(font).fillColor(color)
+        .text(display, x + 1, vy, { width: w - 2, height: Math.max(fs + 2, h - (vy - y)), ellipsis: true, align });
+      if (el.underline) doc.moveTo(x, y + h).lineTo(x + w, y + h).lineWidth(0.5).strokeColor('#9ca3af').stroke();
+    } else if (el.kind === 'text') {
+      const text = String(el.text || '').replace(/\{\{(\w+)\}\}/g, (_, k) => meta[k] ?? '');
+      doc.fontSize(fs).font(font).fillColor(color).text(text, x + 1, y, { width: w - 2, height: h, ellipsis: true, align });
+    } else if (el.kind === 'line') {
+      doc.moveTo(x, y + 1).lineTo(x + w, y + 1).lineWidth(Math.max(0.5, h / 10)).strokeColor(color).stroke();
+    } else if (el.kind === 'box') {
+      doc.rect(x, y, w, h).lineWidth(0.8).strokeColor(color).stroke();
+    } else if (el.kind === 'photo') {
+      doc.rect(x, y, w, h).lineWidth(0.8).strokeColor('#9ca3af').stroke();
+      if (photoBuf) { try { doc.image(photoBuf, x + 1, y + 1, { fit: [w - 2, h - 2], align: 'center', valign: 'center' }); } catch {} }
+    } else if (el.kind === 'signature') {
+      if (sigBuf) { try { doc.image(sigBuf, x + 2, y + 2, { fit: [w - 4, h - 12] }); } catch {} }
+      doc.moveTo(x, y + h - 9).lineTo(x + w, y + h - 9).lineWidth(0.6).strokeColor('#111827').stroke();
+      doc.fontSize(6).font('Helvetica').fillColor('#6b7280').text(el.text || 'Signature', x, y + h - 7, { width: w, align: 'center', lineBreak: false });
+    }
+  }
+}
+
 /* ------------------------------ dispatcher ------------------------------ */
 function drawSubmissionPdf(doc, s) {
   const style = s.activation?.pdfTemplate || process.env.PDF_TEMPLATE || 'modern';
   if (style === 'classic') return drawClassicPdf(doc, s);
+  if (style === 'custom') return drawCustomPdf(doc, s);
   return drawFlowPdf(doc, s, THEMES[style] || THEMES.modern);
 }
 
