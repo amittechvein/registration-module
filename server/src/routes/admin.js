@@ -289,8 +289,10 @@ router.get('/templates/:id/preview-pdf', requirePerm('forms'), async (req, res) 
         : 'Sample ' + f.label.split(' ').slice(0, 2).join(' ');
     }
   }
+  // Only accept a real number — a garbled value must NOT break design lookup
+  const designQ = Number(req.query.design);
   const s = {
-    __designIndex: req.query.design != null ? Number(req.query.design) : null,
+    __designIndex: Number.isFinite(designQ) ? designQ : null,
     id: 0, data: JSON.stringify(sample), formNo: 'PREVIEW-0001', submittedAt: new Date(),
     amount: 1000, paymentStatus: 'paid',
     payments: [{ status: 'paid', orderId: 'order_sample', paymentId: 'pay_sample', updatedAt: new Date() }],

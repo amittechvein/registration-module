@@ -415,8 +415,9 @@ function resolveLayout(raw, designIndex = null) {
   try { layout = JSON.parse(raw || 'null'); } catch {}
   if (!layout) return null;
   if (Array.isArray(layout.versions)) {
-    const idx = designIndex != null ? designIndex : (layout.active || 0);
-    return layout.versions[Math.max(0, Math.min(layout.versions.length - 1, idx))] || null;
+    let idx = Number.isFinite(designIndex) ? designIndex : Number(layout.active) || 0;
+    idx = Math.max(0, Math.min(layout.versions.length - 1, idx));
+    return layout.versions[idx] || layout.versions[0] || null;
   }
   return layout; // old format
 }

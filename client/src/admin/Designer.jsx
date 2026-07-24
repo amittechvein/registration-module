@@ -410,11 +410,13 @@ export default function Designer() {
       return true;
     } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); return false; }
   };
-  const preview = async (idx = designIdx) => {
+  const preview = async (idx) => {
+    // guard: when called from onClick the arg may be a click event — ignore it
+    const design = Number.isInteger(idx) ? idx : designIdx;
     if (!(await save())) return;
     try {
       const t = sessionStorage.getItem('adminToken');
-      const r = await fetch(`/api/admin/templates/${id}/preview-pdf?design=${idx}`, { headers: { Authorization: `Bearer ${t}` } });
+      const r = await fetch(`/api/admin/templates/${id}/preview-pdf?design=${design}`, { headers: { Authorization: `Bearer ${t}` } });
       if (!r.ok) throw new Error('Preview failed');
       window.open(URL.createObjectURL(await r.blob()), '_blank');
     } catch (e) { setMsg({ type: 'err', text: e.message }); }
@@ -472,7 +474,7 @@ export default function Designer() {
           <button className="btn ghost" onClick={() => navigate('/admin/templates')}>Back</button>
           <button className="btn ghost" onClick={undo}>↩ Undo</button>
           <button className="btn ghost" onClick={() => { pushHist(); autoLayout(template); }}>Auto-Layout</button>
-          <button className="btn ghost" onClick={preview}>👁 Preview</button>
+          <button className="btn ghost" onClick={() => preview()}>👁 Preview</button>
           <button className="btn green" onClick={save}>Save</button>
         </div>
       </div>
