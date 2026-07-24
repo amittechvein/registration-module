@@ -100,7 +100,7 @@ const THEMES = {
 };
 
 /* ---------------------------- shared pieces ---------------------------- */
-function header(doc, theme = THEMES.modern, hset = null) {
+function header(doc, theme = THEMES.modern, hset = null, opts = {}) {
   // hset (from the layout designer) can override text, logo, alignment & color
   const name = hset?.name || SCHOOL_NAME;
   const address = hset?.address || SCHOOL_ADDRESS;
@@ -109,6 +109,33 @@ function header(doc, theme = THEMES.modern, hset = null) {
   const align = hset?.align === 'center' ? 'center' : 'left';
   const showLogo = hset ? hset.showLogo !== false : true;
   const logo = showLogo ? getLogoPath() : null;
+
+  // FIXED mode (custom canvas layouts): deterministic geometry that matches
+  // the designer canvas 1:1 — left: rule at y=88, content from y=97;
+  // center: rule at y=121, content from y=130. Text is clamped to one line
+  // so the header can NEVER grow taller than what the canvas shows.
+  if (opts.fixed) {
+    const one = { lineBreak: false, ellipsis: true };
+    let yy;
+    if (align === 'center') {
+      if (logo) { try { doc.image(logo, (L + R) / 2 - 22, 26, { fit: [44, 44] }); } catch {} }
+      doc.fontSize(16).font(theme.fonts.bold).fillColor(nameColor).text(name, L, 74, { width: R - L, align: 'center', ...one });
+      doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(address, L, 95, { width: R - L, align: 'center', ...one });
+      if (line3) doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(line3, L, 106, { width: R - L, align: 'center', ...one });
+      yy = 121;
+    } else {
+      if (logo) { try { doc.image(logo, L, 32, { fit: [52, 52] }); } catch {} }
+      const tx = logo ? L + 62 : L;
+      doc.fontSize(16).font(theme.fonts.bold).fillColor(nameColor).text(name, tx, 36, { width: R - tx, align: 'left', ...one });
+      doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(address, tx, 58, { width: R - tx, align: 'left', ...one });
+      if (line3) doc.fontSize(8.5).font(theme.fonts.regular).fillColor(MUTED).text(line3, tx, 69, { width: R - tx, align: 'left', ...one });
+      yy = 88;
+    }
+    doc.moveTo(L, yy).lineTo(R, yy).lineWidth(1.4).strokeColor(nameColor).stroke();
+    doc.moveTo(L, yy + 2.5).lineTo(R, yy + 2.5).lineWidth(0.5).strokeColor(theme.rules[1]).stroke();
+    doc.y = yy + 9;
+    return;
+  }
 
   const top = 32;
   if (logo && align === 'left') doc.image(logo, L, top, { fit: [52, 52] });
@@ -429,7 +456,7 @@ function drawCustomPdf(doc, s) {
   }
   const data = JSON.parse(s.data || '{}');
   const settings = layout.settings || {};
-  if (settings.showHeader !== false) header(doc, THEMES.modern, settings.header || null);
+  if (settings.showHeader !== false) header(doc, THEMES.modern, settings.header || null, { fixed: true });
 
   const fieldsById = {};
   for (const sec of s.activation?.template?.sections || []) {
@@ -452,7 +479,7 @@ function drawCustomPdf(doc, s) {
   renderCustomElements(doc, s, page1, data, settings);
   if (page2.length) {
     doc.addPage({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
-    if (settings.headerPage2) header(doc, THEMES.modern, settings.header || null);
+    if (settings.headerPage2) header(doc, THEMES.modern, settings.header || null, { fixed: true });
     renderCustomElements(doc, s, page2, data, settings);
   }
 }

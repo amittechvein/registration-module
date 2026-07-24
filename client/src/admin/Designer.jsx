@@ -637,27 +637,49 @@ export default function Designer() {
               onDrop={canvasDrop}
             >
               {settings.showHeader ? (
-                <div
-                  className={`cv-header ${selId === '__header' ? 'sel' : ''}`}
-                  style={{ textAlign: settings.header?.align === 'center' ? 'center' : 'left' }}
-                  onMouseDown={(e) => { e.stopPropagation(); setSelId('__header'); }}
-                  title="Click to edit the header"
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: settings.header?.align === 'center' ? 'center' : 'flex-start' }}>
-                    {settings.header?.showLogo !== false && (
-                      <img src={`/api/public/logo?v=${logoVer}`} alt="" style={{ height: 40 }} onError={(e) => { e.target.style.display = 'none'; }} />
-                    )}
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: settings.header?.nameColor || '#b91c1c' }}>
-                        {settings.header?.name || 'School name (from settings)'}
-                      </div>
-                      <div style={{ fontSize: 8.5, color: '#6b7280' }}>{settings.header?.address || 'Address line'}</div>
-                      {settings.header?.line3 && <div style={{ fontSize: 8.5, color: '#6b7280' }}>{settings.header.line3}</div>}
+                (() => {
+                  // EXACTLY mirrors the PDF's fixed header geometry:
+                  // left → logo 52pt at (36,32), name 16pt at y36, rule at y88 (content from 97)
+                  // center → rule at y121 (content from 130)
+                  const hCenter = settings.header?.align === 'center';
+                  const hColor = settings.header?.nameColor || '#b91c1c';
+                  const hName = settings.header?.name || 'School name (from settings)';
+                  const hAddr = settings.header?.address || 'Address line';
+                  const ruleY = hCenter ? 121 : 88;
+                  return (
+                    <div
+                      className={`cv-header ${selId === '__header' ? 'sel' : ''}`}
+                      style={{ height: hCenter ? 130 : 97 }}
+                      onMouseDown={(e) => { e.stopPropagation(); setSelId('__header'); }}
+                      title="Click to edit the header"
+                    >
+                      {hCenter ? (
+                        <div style={{ position: 'absolute', left: 36, right: 36, top: 26, textAlign: 'center' }}>
+                          {settings.header?.showLogo !== false && (
+                            <img src={`/api/public/logo?v=${logoVer}`} alt="" style={{ height: 44, objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                          )}
+                          <div style={{ fontSize: 16, fontWeight: 800, color: hColor, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden' }}>{hName}</div>
+                          <div style={{ fontSize: 8.5, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden' }}>{hAddr}</div>
+                          {settings.header?.line3 && <div style={{ fontSize: 8.5, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden' }}>{settings.header.line3}</div>}
+                        </div>
+                      ) : (
+                        <div style={{ position: 'absolute', left: 36, right: 36, top: 32, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          {settings.header?.showLogo !== false && (
+                            <img src={`/api/public/logo?v=${logoVer}`} alt="" style={{ height: 52, width: 52, objectFit: 'contain', flexShrink: 0 }} onError={(e) => { e.target.style.display = 'none'; }} />
+                          )}
+                          <div style={{ minWidth: 0, paddingTop: 2 }}>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: hColor, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden' }}>{hName}</div>
+                            <div style={{ fontSize: 8.5, color: '#6b7280', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden' }}>{hAddr}</div>
+                            {settings.header?.line3 && <div style={{ fontSize: 8.5, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden' }}>{settings.header.line3}</div>}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ position: 'absolute', left: 36, right: 36, top: ruleY, borderTop: `2px solid ${hColor}` }} />
+                      <div style={{ position: 'absolute', left: 36, right: 36, top: ruleY + 3, borderTop: '1px solid #cbd5e1' }} />
+                      <div className="cv-header-hint">✏ click to edit header</div>
                     </div>
-                  </div>
-                  <div style={{ borderTop: `2px solid ${settings.header?.nameColor || '#b91c1c'}`, marginTop: 5 }} />
-                  <div className="cv-header-hint">✏ click to edit header</div>
-                </div>
+                  );
+                })()
               ) : settings.topSpace > 0 ? (
                 <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt</div>
               ) : null}
