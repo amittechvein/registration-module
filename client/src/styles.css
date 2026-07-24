@@ -14,7 +14,7 @@ h3 { font-weight: 700; letter-spacing: -.01em; }
 .muted { color: var(--muted); font-size: 12px; }
 
 /* app shell: top bar + icon sidebar */
-.app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .app-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #fff; border-bottom: 1px solid var(--line); padding: 7px 16px; position: sticky; top: 0; z-index: 40; box-shadow: var(--shadow-sm); }
 .app-top-brand { display: flex; align-items: center; gap: 11px; }
 .app-top-brand img { height: 33px; width: 33px; object-fit: contain; border-radius: 10px; background: #f5f7fc; padding: 3px; }
@@ -25,9 +25,9 @@ h3 { font-weight: 700; letter-spacing: -.01em; }
 .user-avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; }
 .user-chip b { display: block; font-size: 12.5px; line-height: 1.15; }
 .user-chip span { display: block; font-size: 10.5px; color: var(--muted); }
-.app-body { display: flex; flex: 1; }
+.app-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 /* Google-Account-style sidebar: white, colored icon bubbles, pill highlight */
-.sidebar { width: 212px; background: #fff; color: #1f1f1f; padding: 11px 8px; flex-shrink: 0; border-right: 1px solid var(--line); }
+.sidebar { width: 212px; background: #fff; color: #1f1f1f; padding: 11px 8px; flex-shrink: 0; border-right: 1px solid var(--line); overflow-y: auto; }
 .sidebar a { display: flex; align-items: center; gap: 10px; color: #3c4043; padding: 5px 12px 5px 6px; border-radius: 999px; margin-bottom: 4px; font-size: 12.5px; font-weight: 500; transition: background .12s; }
 .sidebar a:hover { background: #f1f3f4; }
 .sidebar a.active { background: #d3e3fd; color: #0b57d0; font-weight: 700; }
@@ -39,7 +39,7 @@ h3 { font-weight: 700; letter-spacing: -.01em; }
 .sidebar.collapsed { width: 58px; padding: 11px 6px; }
 .sidebar.collapsed a { justify-content: center; padding: 5px; gap: 0; }
 .sidebar.collapsed .nav-lbl { display: none; }
-.main { flex: 1; padding: 16px 22px; max-width: 1320px; }
+.main { flex: 1; padding: 16px 22px; max-width: 1320px; overflow-y: auto; min-width: 0; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; gap: 12px; flex-wrap: wrap; }
 
 /* cards & tables */
