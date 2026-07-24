@@ -358,3 +358,15 @@ code.url { background: var(--bg); padding: 3px 8px; border-radius: 6px; font-siz
   padding: 9px 16px; background: #fff; border: 1px solid #dadce0; border-radius: 999px; color: #3c4043;
   font-weight: 600; font-size: 13.5px; text-decoration: none; transition: box-shadow .15s, background .15s; }
 .gbtn:hover { background: #f8faff; box-shadow: 0 1px 6px rgba(66,133,244,.28); }
+
+/* --- Locked auto-calculated field on the public form --- */
+.auto-locked { margin-top: 5px; padding: 7px 11px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px;
+  font-weight: 700; color: #0f172a; min-height: 33px; }
+
+/* --- Auto-fill rule editor (template builder) --- */
+.tb-auto { margin: 2px 8px 10px 30px; padding: 10px 14px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 7px; }
+.tb-auto-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; }
+.tb-auto-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+.tb-auto-row select, .tb-auto-row input { padding: 4px 8px; font-size: 12.5px; }
+.tb-auto-row select { max-width: 320px; }

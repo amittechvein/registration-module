@@ -245,6 +245,7 @@ router.post('/templates', requirePerm('forms'), async (req, res) => {
             required: !!f.required,
             studentField: f.studentField || null,
             validation: typeof f.validation === 'string' ? f.validation : JSON.stringify(f.validation || {}),
+            autoFill: f.autoFill ? (typeof f.autoFill === 'string' ? f.autoFill : JSON.stringify(f.autoFill)) : null,
             sortOrder: fi,
           },
           { transaction: tx }
@@ -482,6 +483,8 @@ router.post('/submissions/:id/data', requirePerm('edit'), async (req, res) => {
   });
   if (!s) return res.status(404).json({ error: 'Not found' });
   const newData = req.body.data || {};
+  const { applyAutoFill } = require('../services/validate');
+  await applyAutoFill(s.activation, newData); // rule-computed fields stay consistent
   const oldData = JSON.parse(s.data || '{}');
 
   // Field-level change list for the audit trail

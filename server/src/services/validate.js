@@ -75,4 +75,37 @@ async function validateSubmission(activation, data) {
   return errors;
 }
 
-module.exports = { validateSubmission };
+/**
+ * Server-side auto-fill: compute rule-driven fields (e.g. Residence Locality
+ * Code from distance). Locked rules ALWAYS override whatever the client sent,
+ * so the value is guaranteed to follow the school's chart.
+ */
+async function applyAutoFill(activation, data) {
+  const sections = await FormSection.findAll({
+    where: { templateId: activation.templateId },
+    include: [{ model: FormField, as: 'fields' }],
+  });
+  const fields = sections.flatMap((s) => s.fields);
+  for (const f of fields) {
+    if (!f.autoFill) continue;
+    let rule; try { rule = JSON.parse(f.autoFill); } catch { continue; }
+    if (!rule || !rule.sourceLabel) continue;
+    const src = fields.find((x) => x.label === rule.sourceLabel);
+    if (!src) continue;
+    const raw = data[src.id];
+    const num = Number(raw);
+    if (raw == null || raw === '' || Number.isNaN(num)) continue;
+    let val;
+    const sorted = [...(rule.ranges || [])]
+      .filter((r) => r.upTo !== '' && r.upTo != null)
+      .sort((a, b) => Number(a.upTo) - Number(b.upTo));
+    for (const r of sorted) { if (num <= Number(r.upTo)) { val = r.value; break; } }
+    if (val === undefined) val = rule.above;
+    if (val !== undefined && val !== '' && (rule.locked || data[f.id] == null || data[f.id] === '')) {
+      data[f.id] = val;
+    }
+  }
+  return data;
+}
+
+module.exports = { validateSubmission, applyAutoFill };

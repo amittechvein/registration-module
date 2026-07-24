@@ -53,7 +53,15 @@ const SECTIONS = [
   ]},
   { title: 'Additional Details', fields: [
     f('Residence Distance from School (in km)', 'number', { validation: { min: 0, max: 200 } }),
-    f('Residence Locality Code (Select any one)', 'select', { options: ['A', 'B', 'C', 'D'] }),
+    f('Residence Locality Code (Select any one)', 'select', {
+      options: ['A', 'B', 'C', 'D', 'E'],
+      // Auto-computed from the distance (school chart) — parents cannot change it
+      autoFill: {
+        sourceLabel: 'Residence Distance from School (in km)',
+        ranges: [{ upTo: 3, value: 'A' }, { upTo: 5, value: 'B' }, { upTo: 8, value: 'C' }, { upTo: 10, value: 'D' }],
+        above: 'E', locked: true,
+      },
+    }),
     f('Second Language'),
     f('Does the Applicant have a real sister studying in this School?', 'radio', { required: true, options: ['YES', 'NO'] }),
     f('If Yes then Class'), f('Section'), f('Registration/Admission No'),
@@ -98,6 +106,31 @@ async function ensurePhotoSignatureFields(template) {
   console.log('Added Student Photo & Signature fields to template:', template.name);
 }
 
+/** Migration: the school's chart has locality codes A–E; older installs only had A–D.
+ *  Also installs the locked auto-fill rule (distance → locality code). */
+async function ensureLocalityOptionE(template) {
+  const sections = await FormSection.findAll({ where: { templateId: template.id }, include: [{ model: FormField, as: 'fields' }] });
+  const all = sections.flatMap((s) => s.fields);
+  const dist = all.find((fl) => fl.fieldType === 'number' && /distance/i.test(fl.label) && /school/i.test(fl.label));
+  for (const fl of all) {
+    if (!/locality\s*code/i.test(fl.label)) continue;
+    let opts = []; try { opts = JSON.parse(fl.options || '[]'); } catch {}
+    if (!opts.includes('E')) {
+      opts.push('E');
+      await fl.update({ options: JSON.stringify(opts) });
+      console.log('Added locality option E to:', fl.label);
+    }
+    if (!fl.autoFill && dist) {
+      await fl.update({ autoFill: JSON.stringify({
+        sourceLabel: dist.label,
+        ranges: [{ upTo: 3, value: 'A' }, { upTo: 5, value: 'B' }, { upTo: 8, value: 'C' }, { upTo: 10, value: 'D' }],
+        above: 'E', locked: true,
+      }) });
+      console.log('Installed auto-fill rule (distance → locality code) on:', fl.label);
+    }
+  }
+}
+
 async function ensurePrebuiltForms() {
   const TEMPLATE_NAME = 'Nursery Application Form (2026-27)';
   let template = await FormTemplate.findOne({ where: { name: TEMPLATE_NAME } });
@@ -111,13 +144,15 @@ async function ensurePrebuiltForms() {
         await FormField.create({
           sectionId: section.id, label: fld.label, fieldType: fld.fieldType,
           options: JSON.stringify(fld.options || []), required: !!fld.required,
-          studentField: fld.studentField || null, validation: JSON.stringify(fld.validation || {}), sortOrder: fi,
+          studentField: fld.studentField || null, validation: JSON.stringify(fld.validation || {}),
+          autoFill: fld.autoFill ? JSON.stringify(fld.autoFill) : null, sortOrder: fi,
         });
       }
     }
     console.log('Pre-built template created: ' + TEMPLATE_NAME);
   } else {
     await ensurePhotoSignatureFields(template);
+    await ensureLocalityOptionE(template);
   }
 
   const ACT_TITLE = 'Nursery Registration 2026-27';

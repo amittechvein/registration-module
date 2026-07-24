@@ -36,12 +36,16 @@ export default function TemplateBuilder() {
               collapsed: false,
               fields: s.fields
                 .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((f) => ({
-                  label: f.label, fieldType: f.fieldType,
-                  options: JSON.parse(f.options || '[]'),
-                  required: f.required, studentField: f.studentField || '',
-                  validation: JSON.parse(f.validation || '{}'),
-                })),
+                .map((f) => {
+                  let autoFill = null; try { autoFill = f.autoFill ? JSON.parse(f.autoFill) : null; } catch {}
+                  return {
+                    label: f.label, fieldType: f.fieldType,
+                    options: JSON.parse(f.options || '[]'),
+                    required: f.required, studentField: f.studentField || '',
+                    validation: JSON.parse(f.validation || '{}'),
+                    autoFill,
+                  };
+                }),
             }))
         );
       }).catch((e) => setErr(errMsg(e)));
@@ -110,7 +114,10 @@ export default function TemplateBuilder() {
   const save = async () => {
     setErr(''); setOk('');
     try {
-      const payload = { id: id || undefined, name, description, active, sections: sections.map(({ collapsed, ...s }) => s) };
+      const payload = {
+        id: id || undefined, name, description, active,
+        sections: sections.map(({ collapsed, ...s }) => ({ ...s, fields: s.fields.map(({ _auto, ...f }) => f) })),
+      };
       const { data } = await adminApi.post('/templates', payload);
       setOk('Template saved');
       if (!id) navigate(`/admin/templates/${data.id}`);
@@ -178,8 +185,8 @@ export default function TemplateBuilder() {
               </div>
 
               {sec.fields.map((f, k) => (
+                <React.Fragment key={k}>
                 <div
-                  key={k}
                   className={`tb-field ${drag.current?.type === 'field' && drag.current.si === i && drag.current.fi === k ? 'dragging' : ''} ${isOver('field', i, k) ? 'drop-target' : ''}`}
                   onDragOver={onFieldOver(i, k)}
                   onDrop={dropField(i, k)}
@@ -223,11 +230,74 @@ export default function TemplateBuilder() {
                     {f.fieldType === 'file' && <span className="muted" style={{ fontSize: 11.5 }}>JPG / PNG / PDF · max 5 MB</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
+                    {['select', 'radio'].includes(f.fieldType) && (
+                      <button
+                        className="btn small"
+                        style={f.autoFill ? {} : { background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1' }}
+                        title="Auto-fill rule: compute this field's value from a number field"
+                        onClick={() => upField(i, k, { _auto: !f._auto })}
+                      >⚡</button>
+                    )}
                     <button className="btn small ghost" title="Duplicate field"
                       onClick={() => upSection(i, { fields: [...sec.fields.slice(0, k + 1), JSON.parse(JSON.stringify(f)), ...sec.fields.slice(k + 1)] })}>⧉</button>
                     <button className="btn small danger" title="Delete field" onClick={() => upSection(i, { fields: sec.fields.filter((_, l) => l !== k) })}>✕</button>
                   </div>
                 </div>
+
+                {f._auto && ['select', 'radio'].includes(f.fieldType) && (() => {
+                  const rule = f.autoFill || { sourceLabel: '', ranges: [], above: '', locked: true };
+                  const numberFields = sections.flatMap((s2) => s2.fields).filter((x) => x.fieldType === 'number' && x.label);
+                  const opts = (f.options || []).filter(Boolean);
+                  const setRule = (patch) => upField(i, k, { autoFill: { ...rule, ...patch } });
+                  const upRange = (ri, patch) => setRule({ ranges: rule.ranges.map((r, x) => (x === ri ? { ...r, ...patch } : r)) });
+                  return (
+                    <div className="tb-auto">
+                      <div className="tb-auto-head">
+                        <b>⚡ Auto-fill "{f.label || 'this field'}"</b>
+                        <span className="muted">The value is calculated automatically from a number field — e.g. distance → locality code.</span>
+                      </div>
+                      <div className="tb-auto-row">
+                        <span>Calculate from:</span>
+                        <select value={rule.sourceLabel} onChange={(e) => setRule({ sourceLabel: e.target.value })}>
+                          <option value="">— choose a number field —</option>
+                          {numberFields.map((nf, x) => <option key={x} value={nf.label}>{nf.label}</option>)}
+                        </select>
+                      </div>
+                      {rule.ranges.map((r, ri) => (
+                        <div className="tb-auto-row" key={ri}>
+                          <span>If value ≤</span>
+                          <input type="number" style={{ width: 80 }} value={r.upTo ?? ''} onChange={(e) => upRange(ri, { upTo: e.target.value === '' ? '' : Number(e.target.value) })} />
+                          <span>→</span>
+                          <select value={r.value || ''} onChange={(e) => upRange(ri, { value: e.target.value })}>
+                            <option value="">— option —</option>
+                            {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                          <button className="btn small danger" onClick={() => setRule({ ranges: rule.ranges.filter((_, x) => x !== ri) })}>✕</button>
+                        </div>
+                      ))}
+                      <div className="tb-auto-row">
+                        <button className="btn small ghost" onClick={() => setRule({ ranges: [...rule.ranges, { upTo: '', value: '' }] })}>+ Add range</button>
+                        <span style={{ marginLeft: 12 }}>Above all ranges →</span>
+                        <select value={rule.above || ''} onChange={(e) => setRule({ above: e.target.value })}>
+                          <option value="">— option —</option>
+                          {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="tb-auto-row" style={{ justifyContent: 'space-between' }}>
+                        <label className="check" style={{ margin: 0 }}>
+                          <input type="checkbox" checked={!!rule.locked} onChange={(e) => setRule({ locked: e.target.checked })} />
+                          🔒 Lock — parents cannot change the value manually
+                        </label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn small danger" onClick={() => upField(i, k, { autoFill: null, _auto: false })}>Remove rule</button>
+                          <button className="btn small green" onClick={() => upField(i, k, { _auto: false })}>Done</button>
+                        </div>
+                      </div>
+                      <div className="muted" style={{ fontSize: 11 }}>Remember to click "Save Template" at the top to apply. The rule is also enforced on the server, so submitted values always follow it.</div>
+                    </div>
+                  );
+                })()}
+                </React.Fragment>
               ))}
 
               <div

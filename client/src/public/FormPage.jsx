@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { publicApi, errMsg } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
@@ -10,6 +10,32 @@ const isImageOnlyField = (label) => /photo|photograph|signature/i.test(label || 
 // The student's own Date-of-Birth field (not father's/mother's DOB)
 const isDobField = (fld) => fld.studentField === 'dob' || /^date of birth$/i.test(String(fld.label || '').trim());
 const fmtDate = (d) => { try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return d; } };
+
+// Auto-fill rules (configured in the admin Template Builder):
+// a select/radio field computed from a number field via ranges, e.g.
+// distance → locality code. Locked rules can't be changed by the parent.
+const parseAutoRules = (template) => {
+  const fields = template.sections.flatMap((s) => s.fields);
+  const out = [];
+  for (const f of fields) {
+    if (!f.autoFill) continue;
+    let rule; try { rule = typeof f.autoFill === 'string' ? JSON.parse(f.autoFill) : f.autoFill; } catch { continue; }
+    if (!rule || !rule.sourceLabel) continue;
+    const src = fields.find((x) => x.label === rule.sourceLabel);
+    if (!src) continue;
+    out.push({ targetId: f.id, sourceId: src.id, sourceLabel: src.label, rule });
+  }
+  return out;
+};
+const computeAuto = (rule, raw) => {
+  const num = Number(raw);
+  if (raw == null || raw === '' || Number.isNaN(num)) return undefined;
+  const sorted = [...(rule.ranges || [])]
+    .filter((r) => r.upTo !== '' && r.upTo != null)
+    .sort((a, b) => Number(a.upTo) - Number(b.upTo));
+  for (const r of sorted) if (num <= Number(r.upTo)) return r.value;
+  return rule.above || undefined;
+};
 
 function FileUpload({ field, value, onChange }) {
   const imageOnly = isImageOnlyField(field.label);
@@ -123,7 +149,7 @@ function FieldInput({ field, value, onChange, dob }) {
 }
 
 /** Section-wise step wizard: one section per step, then Review & Submit. */
-function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
+function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoMeta = {} }) {
   const sections = [...form.template.sections].sort((a, b) => a.sortOrder - b.sortOrder);
   const steps = [...sections.map((s) => s.title), 'Review & Submit'];
   const [step, setStep] = useState(0);
@@ -212,7 +238,17 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft }) {
               return (
                 <label className={`fld ${wide ? 'span-all' : ''}`} key={fld.id} htmlFor={`f${fld.id}`}>
                   {fld.label} {fld.required && <span className="req">*</span>}
-                  <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} dob={fld.fieldType === 'date' && isDobField(fld) ? form.dob : null} />
+                  {autoMeta[fld.id]?.locked ? (
+                    <>
+                      <div className="auto-locked">{data[fld.id] || '—'}</div>
+                      <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>🔒 Auto-calculated from "{autoMeta[fld.id].sourceLabel}" — set by school rules.</div>
+                    </>
+                  ) : (
+                    <>
+                      <FieldInput field={fld} value={data[fld.id]} onChange={(v) => setField(fld.id, v)} dob={fld.fieldType === 'date' && isDobField(fld) ? form.dob : null} />
+                      {autoMeta[fld.id] && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>⚡ Auto-filled from "{autoMeta[fld.id].sourceLabel}" — change only if needed.</div>}
+                    </>
+                  )}
                 </label>
               );
             })}
@@ -327,10 +363,26 @@ export default function FormPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Auto-fill rules configured on the template (e.g. distance → locality code)
+  const autoRules = useMemo(() => (form ? parseAutoRules(form.template) : []), [form]);
+  const autoMeta = useMemo(() => {
+    const m = {};
+    for (const r of autoRules) {
+      m[r.targetId] = { locked: !!r.rule.locked, sourceLabel: r.sourceLabel };
+    }
+    return m;
+  }, [autoRules]);
+
   // autosave draft (half-filled forms can be resumed)
   const setField = (fieldId, value) => {
     setData((d) => {
       const next = { ...d, [fieldId]: value };
+      // Recompute every auto-filled field that depends on the changed field
+      for (const r of autoRules) {
+        if (r.sourceId !== fieldId) continue;
+        const v = computeAuto(r.rule, value);
+        next[r.targetId] = v !== undefined ? v : '';
+      }
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         publicApi.post(`/forms/${slug}/draft`, { data: next }).catch(() => {});
@@ -455,6 +507,7 @@ export default function FormPage() {
           busy={busy}
           submit={submit}
           hadDraft={!!draft}
+          autoMeta={autoMeta}
         />
       )}
     </PubShell>

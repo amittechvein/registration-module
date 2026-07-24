@@ -75,6 +75,9 @@ const FormField = sequelize.define('FormField', {
   // Link to student profile column — when applicant is Allotted, value auto-inserts into Students DB
   studentField: { type: DataTypes.STRING, allowNull: true },
   validation: { type: DataTypes.TEXT }, // JSON: {minLength,maxLength,min,max,regex,regexMessage}
+  // Auto-fill rule (for select/radio): value computed from a number field.
+  // JSON: { sourceLabel, ranges:[{upTo,value}...], above, locked }
+  autoFill: { type: DataTypes.TEXT, allowNull: true },
   sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
 });
 

@@ -9,7 +9,7 @@ const {
 } = require('../models');
 const { sign, verify, applicantAuth } = require('../middleware/auth');
 const { audit } = require('../services/audit');
-const { validateSubmission } = require('../services/validate');
+const { validateSubmission, applyAutoFill } = require('../services/validate');
 const { scoreSubmission, detectDuplicates } = require('../services/scoring');
 const payment = require('../services/payment');
 const { notifyStatusChange } = require('../services/notify');
@@ -370,6 +370,7 @@ router.post('/forms/:slug/submit', async (req, res) => {
   // one phone number may submit multiple forms (e.g. for multiple children).
   let sub = await Submission.findOne({ where: { activationId: a.id, applicantId: req.applicant.id, isDraft: true } });
   const data = req.body.data || {};
+  await applyAutoFill(a, data); // enforce rule-computed fields (e.g. locality code)
   const errors = await validateSubmission(a, data);
   if (errors.length) return res.status(400).json({ errors });
 
