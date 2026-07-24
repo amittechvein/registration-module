@@ -87,7 +87,14 @@ systemctl enable registration
 systemctl restart registration
 
 echo "==> Configuring Nginx for $DOMAIN…"
-cat > /etc/nginx/sites-available/registration <<EOF
+NGX="/etc/nginx/sites-available/registration"
+# IMPORTANT: never overwrite a config that certbot has already upgraded to
+# HTTPS — rewriting it would delete the 443 server block and break the domain
+# (techvein.org sends HSTS, so browsers force https on all subdomains).
+if grep -q "listen 443" "$NGX" 2>/dev/null; then
+  echo "==> Nginx config already has HTTPS — leaving it untouched."
+else
+  cat > "$NGX" <<EOF
 server {
     listen 80 default_server;
     server_name $DOMAIN _;
@@ -101,6 +108,7 @@ server {
     }
 }
 EOF
+fi
 ln -sf /etc/nginx/sites-available/registration /etc/nginx/sites-enabled/registration
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
@@ -109,18 +117,29 @@ IP=$(hostname -I | awk '{print $1}')
 sleep 3
 
 # Free HTTPS via Let's Encrypt — works once the domain's A record points here
-echo "==> Attempting HTTPS certificate for $DOMAIN…"
-DNS_IP=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)
-if [ "$DNS_IP" = "$IP" ]; then
+echo "==> Ensuring HTTPS for $DOMAIN…"
+if grep -q "listen 443" "$NGX" 2>/dev/null; then
+  echo "==> HTTPS already configured."
+  SITE_URL="https://$DOMAIN"
+elif [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+  # Certificate exists but nginx lost the 443 block — reinstall it.
   apt-get install -y certbot python3-certbot-nginx
   certbot --nginx -d "$DOMAIN" -m "$CERT_EMAIL" --agree-tos --redirect --non-interactive || \
-    echo "!! certbot failed — run manually later: certbot --nginx -d $DOMAIN"
+    echo "!! certbot failed — run manually: certbot --nginx -d $DOMAIN"
   SITE_URL="https://$DOMAIN"
 else
-  echo "!! $DOMAIN does not point to $IP yet (currently: ${DNS_IP:-not set})."
-  echo "   Add an A record for 'form' → $IP at your DNS provider, wait a few"
-  echo "   minutes, then re-run this script to enable HTTPS automatically."
-  SITE_URL="http://$IP"
+  DNS_IP=$(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | head -1 || true)
+  if [ "$DNS_IP" = "$IP" ]; then
+    apt-get install -y certbot python3-certbot-nginx
+    certbot --nginx -d "$DOMAIN" -m "$CERT_EMAIL" --agree-tos --redirect --non-interactive || \
+      echo "!! certbot failed — run manually later: certbot --nginx -d $DOMAIN"
+    SITE_URL="https://$DOMAIN"
+  else
+    echo "!! $DOMAIN does not point to $IP yet (currently: ${DNS_IP:-not set})."
+    echo "   Add an A record for 'form' → $IP at your DNS provider, wait a few"
+    echo "   minutes, then re-run this script to enable HTTPS automatically."
+    SITE_URL="http://$IP"
+  fi
 fi
 
 echo ""
