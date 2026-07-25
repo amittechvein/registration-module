@@ -211,7 +211,10 @@ router.get('/templates/:id', requirePerm('forms'), async (req, res) => {
   res.json(t);
 });
 
-// Save whole template (name + sections + fields) in one call
+// Save whole template (name + sections + fields) in one call.
+// IMPORTANT: sections & fields are UPSERTED (ids preserved) — never
+// destroy/recreate, because submission data is keyed by field id and
+// recreating fields would orphan every existing submission's answers.
 router.post('/templates', requirePerm('forms'), async (req, res) => {
   const { id, name, description, active = true, sections = [] } = req.body;
   if (!name) return res.status(400).json({ error: 'Form name is required' });
@@ -222,36 +225,61 @@ router.post('/templates', requirePerm('forms'), async (req, res) => {
       template = await FormTemplate.findByPk(id, { transaction: tx });
       if (!template) throw new Error('Template not found');
       await template.update({ name, description, active }, { transaction: tx });
-      const oldSections = await FormSection.findAll({ where: { templateId: id }, transaction: tx });
-      await FormField.destroy({ where: { sectionId: oldSections.map((s) => s.id) }, transaction: tx });
-      await FormSection.destroy({ where: { templateId: id }, transaction: tx });
     } else {
       template = await FormTemplate.create({ name, description, active }, { transaction: tx });
     }
+    const oldSections = await FormSection.findAll({
+      where: { templateId: template.id },
+      include: [{ model: FormField, as: 'fields' }], transaction: tx,
+    });
+    const validSectionIds = new Set(oldSections.map((s) => s.id));
+    const validFieldIds = new Set(oldSections.flatMap((s) => s.fields.map((f) => f.id)));
+    const keepSectionIds = [];
+    const keepFieldIds = [];
+
     for (let si = 0; si < sections.length; si++) {
       const s = sections[si];
-      const section = await FormSection.create(
-        { templateId: template.id, title: s.title || `Section ${si + 1}`, sortOrder: si },
-        { transaction: tx }
-      );
+      const sPayload = { templateId: template.id, title: s.title || `Section ${si + 1}`, sortOrder: si };
+      let sectionId;
+      if (s.id && validSectionIds.has(Number(s.id))) {
+        sectionId = Number(s.id);
+        await FormSection.update(sPayload, { where: { id: sectionId }, transaction: tx });
+      } else {
+        sectionId = (await FormSection.create(sPayload, { transaction: tx })).id;
+      }
+      keepSectionIds.push(sectionId);
+
       for (let fi = 0; fi < (s.fields || []).length; fi++) {
         const f = s.fields[fi];
-        await FormField.create(
-          {
-            sectionId: section.id,
-            label: f.label || `Field ${fi + 1}`,
-            fieldType: f.fieldType || 'text',
-            options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-            required: !!f.required,
-            studentField: f.studentField || null,
-            validation: typeof f.validation === 'string' ? f.validation : JSON.stringify(f.validation || {}),
-            autoFill: f.autoFill ? (typeof f.autoFill === 'string' ? f.autoFill : JSON.stringify(f.autoFill)) : null,
-            sortOrder: fi,
-          },
-          { transaction: tx }
-        );
+        const fPayload = {
+          sectionId,
+          label: f.label || `Field ${fi + 1}`,
+          fieldType: f.fieldType || 'text',
+          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+          required: !!f.required,
+          studentField: f.studentField || null,
+          validation: typeof f.validation === 'string' ? f.validation : JSON.stringify(f.validation || {}),
+          autoFill: f.autoFill ? (typeof f.autoFill === 'string' ? f.autoFill : JSON.stringify(f.autoFill)) : null,
+          showIf: f.showIf ? (typeof f.showIf === 'string' ? f.showIf : JSON.stringify(f.showIf)) : null,
+          sortOrder: fi,
+        };
+        if (f.id && validFieldIds.has(Number(f.id))) {
+          await FormField.update(fPayload, { where: { id: Number(f.id) }, transaction: tx });
+          keepFieldIds.push(Number(f.id));
+        } else {
+          keepFieldIds.push((await FormField.create(fPayload, { transaction: tx })).id);
+        }
       }
     }
+    // remove only what the admin actually deleted in the builder
+    await FormField.destroy({
+      where: { sectionId: oldSections.map((s) => s.id), id: { [Op.notIn]: keepFieldIds.length ? keepFieldIds : [0] } },
+      transaction: tx,
+    });
+    await FormSection.destroy({
+      where: { templateId: template.id, id: { [Op.notIn]: keepSectionIds.length ? keepSectionIds : [0] } },
+      transaction: tx,
+    });
     await tx.commit();
     await audit(req, 'template.save', { entity: 'FormTemplate', entityId: template.id, summary: `${id ? 'Updated' : 'Created'} form template "${name}" (${sections.length} sections)` });
     res.json({ ok: true, id: template.id });

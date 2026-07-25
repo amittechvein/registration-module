@@ -78,6 +78,9 @@ const FormField = sequelize.define('FormField', {
   // Auto-fill rule (for select/radio): value computed from a number field.
   // JSON: { sourceLabel, ranges:[{upTo,value}...], above, locked }
   autoFill: { type: DataTypes.TEXT, allowNull: true },
+  // Conditional visibility: show this field only when another field has a
+  // specific answer. JSON: { sourceLabel, equals, required }
+  showIf: { type: DataTypes.TEXT, allowNull: true },
   sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
 });
 

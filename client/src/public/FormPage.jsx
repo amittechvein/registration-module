@@ -37,6 +37,22 @@ const computeAuto = (rule, raw) => {
   return rule.above || undefined;
 };
 
+// Conditional visibility rules: show a field only when another field has a
+// specific answer (e.g. sister-in-school = YES → Class/Section/Reg No appear).
+const parseCondRules = (template) => {
+  const fields = template.sections.flatMap((s) => s.fields);
+  const out = {};
+  for (const f of fields) {
+    if (!f.showIf) continue;
+    let rule; try { rule = typeof f.showIf === 'string' ? JSON.parse(f.showIf) : f.showIf; } catch { continue; }
+    if (!rule || !rule.sourceLabel || !rule.equals) continue;
+    const src = fields.find((x) => x.label === rule.sourceLabel);
+    if (!src) continue;
+    out[f.id] = { sourceId: src.id, equals: String(rule.equals), required: !!rule.required };
+  }
+  return out;
+};
+
 function FileUpload({ field, value, onChange }) {
   const imageOnly = isImageOnlyField(field.label);
   const accept = imageOnly ? '.jpg,.jpeg,.png,.webp' : '.jpg,.jpeg,.png,.webp,.pdf';
@@ -149,7 +165,14 @@ function FieldInput({ field, value, onChange, dob }) {
 }
 
 /** Section-wise step wizard: one section per step, then Review & Submit. */
-function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoMeta = {} }) {
+function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoMeta = {}, condOf = {} }) {
+  // conditional visibility helpers
+  const isVisible = (fld) => {
+    const c = condOf[fld.id];
+    if (!c) return true;
+    return String(data[c.sourceId] ?? '') === c.equals;
+  };
+  const isRequired = (fld) => fld.required || (!!condOf[fld.id]?.required && isVisible(fld));
   const sections = [...form.template.sections].sort((a, b) => a.sortOrder - b.sortOrder);
   const steps = [...sections.map((s) => s.title), 'Review & Submit'];
   const [step, setStep] = useState(0);
@@ -159,7 +182,7 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoM
 
   const missingIn = (sec) =>
     sec.fields.filter((fld) => {
-      if (!fld.required) return false;
+      if (!isVisible(fld) || !isRequired(fld)) return false;
       const v = data[fld.id];
       if (fld.fieldType === 'file') return !(v && typeof v === 'object' && v.attachmentId);
       return v == null || v === '' || (Array.isArray(v) && !v.length);
@@ -230,14 +253,14 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoM
         <div className="card">
           <div className="section-title">Step {step + 1} of {steps.length}: {current.title}</div>
           <div className="fields-grid">
-            {[...current.fields].sort((a, b) => a.sortOrder - b.sortOrder).map((fld) => {
+            {[...current.fields].sort((a, b) => a.sortOrder - b.sortOrder).filter(isVisible).map((fld) => {
               let opts = []; try { opts = JSON.parse(fld.options || '[]'); } catch {}
               const wide = ['textarea', 'checkbox'].includes(fld.fieldType)
                 || fld.label.length > 58
                 || (fld.fieldType === 'radio' && opts.join('').length > 24);
               return (
                 <label className={`fld ${wide ? 'span-all' : ''}`} key={fld.id} htmlFor={`f${fld.id}`}>
-                  {fld.label} {fld.required && <span className="req">*</span>}
+                  {fld.label} {isRequired(fld) && <span className="req">*</span>}
                   {autoMeta[fld.id]?.locked ? (
                     <>
                       <div className="auto-locked">{data[fld.id] || '—'}</div>
@@ -265,7 +288,7 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoM
                 <b style={{ color: '#1d4ed8' }}>{sec.title}</b>
                 <button className="btn small ghost" onClick={() => jump(sections.indexOf(sec))}>Edit</button>
               </div>
-              {sec.fields.map((fld) => (
+              {sec.fields.filter(isVisible).map((fld) => (
                 <div className="review-item" key={fld.id}>
                   <div className="k">{fld.label}</div>
                   <div className="v">{displayValue(fld)}</div>
@@ -365,6 +388,8 @@ export default function FormPage() {
 
   // Auto-fill rules configured on the template (e.g. distance → locality code)
   const autoRules = useMemo(() => (form ? parseAutoRules(form.template) : []), [form]);
+  // Conditional visibility rules (e.g. sister = YES → Class/Section/Reg No)
+  const condOf = useMemo(() => (form ? parseCondRules(form.template) : {}), [form]);
   const autoMeta = useMemo(() => {
     const m = {};
     for (const r of autoRules) {
@@ -382,6 +407,10 @@ export default function FormPage() {
         if (r.sourceId !== fieldId) continue;
         const v = computeAuto(r.rule, value);
         next[r.targetId] = v !== undefined ? v : '';
+      }
+      // Clear values of fields that just became hidden (their condition broke)
+      for (const [targetId, c] of Object.entries(condOf)) {
+        if (c.sourceId === fieldId && String(value ?? '') !== c.equals) next[targetId] = '';
       }
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
@@ -508,6 +537,7 @@ export default function FormPage() {
           submit={submit}
           hadDraft={!!draft}
           autoMeta={autoMeta}
+          condOf={condOf}
         />
       )}
     </PubShell>

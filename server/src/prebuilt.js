@@ -64,7 +64,9 @@ const SECTIONS = [
     }),
     f('Second Language'),
     f('Does the Applicant have a real sister studying in this School?', 'radio', { required: true, options: ['YES', 'NO'] }),
-    f('If Yes then Class'), f('Section'), f('Registration/Admission No'),
+    f('If Yes then Class', 'text', { showIf: { sourceLabel: 'Does the Applicant have a real sister studying in this School?', equals: 'YES', required: true } }),
+    f('Section', 'text', { showIf: { sourceLabel: 'Does the Applicant have a real sister studying in this School?', equals: 'YES', required: true } }),
+    f('Registration/Admission No', 'text', { showIf: { sourceLabel: 'Does the Applicant have a real sister studying in this School?', equals: 'YES', required: true } }),
     f('If the mother of the Girl was a Student of this School', 'radio', { options: ['YES', 'NO'] }),
   ]},
   { title: 'Attachments', fields: [
@@ -131,6 +133,27 @@ async function ensureLocalityOptionE(template) {
   }
 }
 
+/** Migration (runs on EVERY template): make the "real sister" follow-up
+ *  fields (Class / Section / Registration No) conditional & mandatory-if-YES. */
+async function ensureSisterCondition() {
+  const templates = await FormTemplate.findAll();
+  for (const t of templates) {
+    const sections = await FormSection.findAll({ where: { templateId: t.id }, include: [{ model: FormField, as: 'fields' }] });
+    const all = sections.flatMap((s) => s.fields);
+    const src = all.find((fl) => ['radio', 'select'].includes(fl.fieldType) && /real sister studying/i.test(fl.label));
+    if (!src) continue;
+    const isTarget = (label) => {
+      const l = String(label).trim().toLowerCase();
+      return l.startsWith('if yes th') || l === 'section' || l.startsWith('registration/admission') || l.startsWith('registration / admission');
+    };
+    for (const fl of all) {
+      if (fl.showIf || !isTarget(fl.label)) continue;
+      await fl.update({ showIf: JSON.stringify({ sourceLabel: src.label, equals: 'YES', required: true }) });
+      console.log(`[${t.name}] "${fl.label}" now shows only when sister = YES (mandatory)`);
+    }
+  }
+}
+
 async function ensurePrebuiltForms() {
   const TEMPLATE_NAME = 'Nursery Application Form (2026-27)';
   let template = await FormTemplate.findOne({ where: { name: TEMPLATE_NAME } });
@@ -145,7 +168,8 @@ async function ensurePrebuiltForms() {
           sectionId: section.id, label: fld.label, fieldType: fld.fieldType,
           options: JSON.stringify(fld.options || []), required: !!fld.required,
           studentField: fld.studentField || null, validation: JSON.stringify(fld.validation || {}),
-          autoFill: fld.autoFill ? JSON.stringify(fld.autoFill) : null, sortOrder: fi,
+          autoFill: fld.autoFill ? JSON.stringify(fld.autoFill) : null,
+          showIf: fld.showIf ? JSON.stringify(fld.showIf) : null, sortOrder: fi,
         });
       }
     }
@@ -171,6 +195,9 @@ async function ensurePrebuiltForms() {
     for (const st of STATUSES) await FormStatus.create({ activationId: act.id, ...st });
     console.log('Pre-built form activated → public URL path: /form/' + act.slug);
   }
+
+  // Applies to ALL templates, including ones the school created themselves
+  await ensureSisterCondition();
 }
 
 module.exports = { ensurePrebuiltForms };

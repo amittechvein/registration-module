@@ -15,18 +15,33 @@ async function validateSubmission(activation, data) {
     where: { templateId: activation.templateId },
     include: [{ model: FormField, as: 'fields' }],
   });
+  const allFields = sections.flatMap((s) => s.fields);
+
+  // Conditional visibility: is this field currently shown to the applicant?
+  const condOf = (field) => {
+    if (!field.showIf) return null;
+    try {
+      const rule = JSON.parse(field.showIf);
+      if (!rule?.sourceLabel || !rule?.equals) return null;
+      const src = allFields.find((x) => x.label === rule.sourceLabel);
+      return src ? { met: String(data[src.id] ?? '') === String(rule.equals), required: !!rule.required } : null;
+    } catch { return null; }
+  };
 
   for (const section of sections) {
     for (const field of section.fields) {
+      const cond = condOf(field);
+      if (cond && !cond.met) continue; // hidden field → no validation at all
       const value = data[field.id];
       const empty = value == null || value === '' || (Array.isArray(value) && value.length === 0);
-      if (field.required && empty) {
+      const required = field.required || (cond && cond.required);
+      if (required && empty) {
         errors.push(`${field.label} is required`);
         continue;
       }
       if (field.fieldType === 'file') {
         const attId = value && typeof value === 'object' && value.attachmentId ? value.attachmentId : null;
-        if (field.required && !attId) {
+        if (required && !attId) {
           if (!errors.includes(`${field.label} is required`)) errors.push(`${field.label} is required`);
         }
         // Photo & signature fields must be images (JPG/PNG/WEBP), never PDF

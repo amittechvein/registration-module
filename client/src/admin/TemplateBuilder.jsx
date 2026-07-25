@@ -32,18 +32,21 @@ export default function TemplateBuilder() {
           t.sections
             .sort((a, b) => a.sortOrder - b.sortOrder)
             .map((s) => ({
+              id: s.id, // keep ids so saving PRESERVES existing submissions' data
               title: s.title,
               collapsed: false,
               fields: s.fields
                 .sort((a, b) => a.sortOrder - b.sortOrder)
                 .map((f) => {
                   let autoFill = null; try { autoFill = f.autoFill ? JSON.parse(f.autoFill) : null; } catch {}
+                  let showIf = null; try { showIf = f.showIf ? JSON.parse(f.showIf) : null; } catch {}
                   return {
+                    id: f.id,
                     label: f.label, fieldType: f.fieldType,
                     options: JSON.parse(f.options || '[]'),
                     required: f.required, studentField: f.studentField || '',
                     validation: JSON.parse(f.validation || '{}'),
-                    autoFill,
+                    autoFill, showIf,
                   };
                 }),
             }))
@@ -116,7 +119,7 @@ export default function TemplateBuilder() {
     try {
       const payload = {
         id: id || undefined, name, description, active,
-        sections: sections.map(({ collapsed, ...s }) => ({ ...s, fields: s.fields.map(({ _auto, ...f }) => f) })),
+        sections: sections.map(({ collapsed, ...s }) => ({ ...s, fields: s.fields.map(({ _auto, _cond, ...f }) => f) })),
       };
       const { data } = await adminApi.post('/templates', payload);
       setOk('Template saved');
@@ -238,11 +241,55 @@ export default function TemplateBuilder() {
                         onClick={() => upField(i, k, { _auto: !f._auto })}
                       >⚡</button>
                     )}
+                    <button
+                      className="btn small"
+                      style={f.showIf ? {} : { background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1' }}
+                      title="Condition: show this field only for a specific answer"
+                      onClick={() => upField(i, k, { _cond: !f._cond })}
+                    >👁</button>
                     <button className="btn small ghost" title="Duplicate field"
-                      onClick={() => upSection(i, { fields: [...sec.fields.slice(0, k + 1), JSON.parse(JSON.stringify(f)), ...sec.fields.slice(k + 1)] })}>⧉</button>
+                      onClick={() => { const { id: _dropId, ...copyF } = JSON.parse(JSON.stringify(f)); upSection(i, { fields: [...sec.fields.slice(0, k + 1), copyF, ...sec.fields.slice(k + 1)] }); }}>⧉</button>
                     <button className="btn small danger" title="Delete field" onClick={() => upSection(i, { fields: sec.fields.filter((_, l) => l !== k) })}>✕</button>
                   </div>
                 </div>
+
+                {f._cond && (() => {
+                  const cond = f.showIf || { sourceLabel: '', equals: '', required: false };
+                  const sourceFields = sections.flatMap((s2) => s2.fields).filter((x) => ['radio', 'select'].includes(x.fieldType) && x.label && x.label !== f.label);
+                  const src = sourceFields.find((x) => x.label === cond.sourceLabel);
+                  const srcOpts = (src?.options || []).filter(Boolean);
+                  const setCond = (patch) => upField(i, k, { showIf: { ...cond, ...patch } });
+                  return (
+                    <div className="tb-auto" style={{ background: '#eff6ff', borderColor: '#93c5fd' }}>
+                      <div className="tb-auto-head">
+                        <b>👁 Show "{f.label || 'this field'}" conditionally</b>
+                        <span className="muted">The field appears only when another answer matches — e.g. "real sister = YES".</span>
+                      </div>
+                      <div className="tb-auto-row">
+                        <span>Show only when</span>
+                        <select value={cond.sourceLabel} onChange={(e) => setCond({ sourceLabel: e.target.value, equals: '' })}>
+                          <option value="">— choose a Yes/No or select field —</option>
+                          {sourceFields.map((sf, x) => <option key={x} value={sf.label}>{sf.label}</option>)}
+                        </select>
+                        <span>=</span>
+                        <select value={cond.equals || ''} onChange={(e) => setCond({ equals: e.target.value })}>
+                          <option value="">— answer —</option>
+                          {srcOpts.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="tb-auto-row" style={{ justifyContent: 'space-between' }}>
+                        <label className="check" style={{ margin: 0 }}>
+                          <input type="checkbox" checked={!!cond.required} onChange={(e) => setCond({ required: e.target.checked })} />
+                          Mandatory when shown
+                        </label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn small danger" onClick={() => upField(i, k, { showIf: null, _cond: false })}>Remove condition</button>
+                          <button className="btn small green" onClick={() => upField(i, k, { _cond: false })}>Done</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {f._auto && ['select', 'radio'].includes(f.fieldType) && (() => {
                   const rule = f.autoFill || { sourceLabel: '', ranges: [], above: '', locked: true };
