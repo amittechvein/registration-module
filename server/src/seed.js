@@ -28,9 +28,14 @@ async function ensureSeed() {
     if (first) await first.update({ role: 'owner' });
   }
 
-  // Auto-create the pre-built Nursery form (from the school's PDF) if missing
-  const { ensurePrebuiltForms } = require('./prebuilt');
-  await ensurePrebuiltForms();
+  // Auto-create the pre-built Nursery form (from the school's PDF) if missing.
+  // NEVER let prebuilt content take the whole site down — log and continue.
+  try {
+    const { ensurePrebuiltForms } = require('./prebuilt');
+    await ensurePrebuiltForms();
+  } catch (e) {
+    console.error('[prebuilt] skipped due to error (site continues):', e.message);
+  }
 }
 
 if (require.main === module) {

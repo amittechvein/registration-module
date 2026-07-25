@@ -156,7 +156,14 @@ async function ensureSisterCondition() {
 
 async function ensurePrebuiltForms() {
   const TEMPLATE_NAME = 'Nursery Application Form (2026-27)';
-  let template = await FormTemplate.findOne({ where: { name: TEMPLATE_NAME } });
+  const { Op: OpPre } = require('sequelize');
+  // If the pre-built ACTIVATION already exists (by permanent slug), reuse its
+  // template even when the school renamed things — never create duplicates.
+  const existingAct = await FormActivation.findOne({
+    where: { [OpPre.or]: [{ slug: 'nursery-registration-2026-27' }, { title: 'Nursery Registration 2026-27' }] },
+  });
+  let template = existingAct ? await FormTemplate.findByPk(existingAct.templateId) : null;
+  if (!template) template = await FormTemplate.findOne({ where: { name: TEMPLATE_NAME } });
   if (!template) {
     template = await FormTemplate.create({ name: TEMPLATE_NAME, description: 'Pre-built from the school applicant PDF', active: true });
     for (let si = 0; si < SECTIONS.length; si++) {
@@ -180,13 +187,17 @@ async function ensurePrebuiltForms() {
   }
 
   const ACT_TITLE = 'Nursery Registration 2026-27';
-  let act = await FormActivation.findOne({ where: { title: ACT_TITLE } });
+  const ACT_SLUG = 'nursery-registration-2026-27';
+  // Look up by SLUG first (permanent), then title — the school can rename the
+  // form in admin, and a rename must not cause a duplicate-slug crash here.
+  const { Op } = require('sequelize');
+  let act = await FormActivation.findOne({ where: { [Op.or]: [{ slug: ACT_SLUG }, { title: ACT_TITLE }] } });
   if (!act) {
     const session = await AcademicSession.findOne({ where: { name: '2026-27' } });
     const nursery = await ClassRoom.findOne({ where: { name: 'Nursery' } });
     if (!session || !nursery) return;
     act = await FormActivation.create({
-      title: ACT_TITLE, slug: 'nursery-registration-2026-27',
+      title: ACT_TITLE, slug: ACT_SLUG,
       templateId: template.id, sessionId: session.id, classId: nursery.id,
       price: 1000, onlinePaymentEnabled: true, dobValidationEnabled: false,
       formNoPrefix: 'NUR-', formNoSuffix: '/27', formNoPad: 5,
