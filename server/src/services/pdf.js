@@ -574,6 +574,9 @@ function renderCustomElements(doc, s, elements, data, settings) {
     } else if (el.kind === 'photo') {
       doc.rect(x, y, w, h).lineWidth(0.8).strokeColor('#9ca3af').stroke();
       if (photoBuf) { try { doc.image(photoBuf, x + 1, y + 1, { fit: [w - 2, h - 2], align: 'center', valign: 'center' }); } catch {} }
+    } else if (el.kind === 'logo') {
+      const logoPath = getLogoPath();
+      if (logoPath) { try { doc.image(logoPath, x, y, { fit: [w, h] }); } catch {} }
     } else if (el.kind === 'signature') {
       if (sigBuf) { try { doc.image(sigBuf, x + 2, y + 2, { fit: [w - 4, h - 12] }); } catch {} }
       doc.moveTo(x, y + h - 9).lineTo(x + w, y + h - 9).lineWidth(0.6).strokeColor('#111827').stroke();

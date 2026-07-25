@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { adminApi, errMsg } from '../lib/api.js';
+import { adminApi, publicApi, errMsg } from '../lib/api.js';
 
 /**
  * Canva-style PDF layout designer (A4 · 1 canvas unit = 1 print point).
@@ -20,6 +20,7 @@ const defaultsFor = (kind) => ({
   photo: { w: 70, h: 85, fontSize: 8 },
   signature: { w: 130, h: 45, fontSize: 8, text: "Parent's Signature" },
   payment: { w: 265, h: 76, fontSize: 8, color: '#14532d', text: 'PAYMENT DETAILS' },
+  logo: { w: 52, h: 52, fontSize: 8 },
 }[kind]);
 
 export default function Designer() {
@@ -30,6 +31,8 @@ export default function Designer() {
   const [settings, setSettings] = useState({ showHeader: true, topSpace: 100, header: {} });
   const [selId, setSelId] = useState(null); // element id or '__header'
   const [logoVer, setLogoVer] = useState(0); // cache-buster after logo upload
+  const [school, setSchool] = useState({ name: '', address: '' }); // for header ungroup defaults
+  useEffect(() => { publicApi.get('/school-info').then((r) => setSchool(r.data)).catch(() => {}); }, []);
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('sections');
   const [palSec, setPalSec] = useState(null);
@@ -116,6 +119,25 @@ export default function Designer() {
     return els;
   };
   const autoLayout = (t) => setElements(autoLayoutEls(t));
+
+  /* Break the fixed school header into separate movable elements:
+     logo, school name, address (and line 3), plus the divider line. */
+  const ungroupHeader = () => {
+    const h = settings.header || {};
+    const color = h.nameColor || '#b91c1c';
+    const name = h.name || school.name || 'School Name';
+    const address = h.address || school.address || '';
+    const els = [];
+    if (h.showLogo !== false) els.push({ id: uid(), kind: 'logo', x: 36, y: 32, w: 52, h: 52, fontSize: 8, color });
+    els.push({ id: uid(), kind: 'text', text: name, x: 98, y: 36, w: 430, h: 20, fontSize: 16, bold: true, color, align: 'left' });
+    if (address) els.push({ id: uid(), kind: 'text', text: address, x: 98, y: 58, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left' });
+    if (h.line3) els.push({ id: uid(), kind: 'text', text: h.line3, x: 98, y: 70, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left' });
+    els.push({ id: uid(), kind: 'line', x: 36, y: 86, w: 523, h: 8, fontSize: 8, color });
+    setElements((cur) => [...els, ...cur]);
+    setSettings({ ...settings, showHeader: false, topSpace: 0 });
+    setSelId(null);
+    setMsg({ type: 'ok', text: 'Header ungrouped — logo, school name, address and the line are now separate elements you can drag, resize and restyle. Tick "School header" again to return to the fixed header (then delete these elements).' });
+  };
 
   /* ------------------- move / resize with smart guides ------------------- */
   useEffect(() => {
@@ -569,6 +591,7 @@ export default function Designer() {
           <label className="btn ghost" style={{ cursor: 'pointer' }}>
             ⬆ Upload logo<input type="file" accept=".png,.jpg,.jpeg" hidden onChange={(e) => uploadLogo(e.target.files?.[0])} />
           </label>
+          <button className="btn small" title="Turn the header into separate movable elements (logo, name, address, line)" onClick={ungroupHeader}>⛓ Ungroup header</button>
           <button className="btn small ghost" onClick={() => setSelId(null)}>Done</button>
         </div>
       )}
@@ -604,12 +627,17 @@ export default function Designer() {
           {tab === 'elements' && (
             <>
               <div className="cv-title">Design elements</div>
-              {[['text', '📝', 'Text / heading'], ['line', '━', 'Divider line'], ['box', '▭', 'Box / border'], ['photo', '🖼', 'Student photo'], ['signature', '✍', 'Signature'], ['payment', '💳', 'Payment details']].map(([k, ico, label]) => (
+              {[['text', '📝', 'Text / heading'], ['line', '━', 'Divider line'], ['box', '▭', 'Box / border'], ['photo', '🖼', 'Student photo'], ['signature', '✍', 'Signature'], ['payment', '💳', 'Payment details'], ['logo', '🏫', 'School logo']].map(([k, ico, label]) => (
                 <div key={k} className="cv-item" draggable onDragStart={paletteDrag(k)} onClick={() => addElement(k)}>
                   <b>{ico} {label}</b>
                   <span>drag or click to add</span>
                 </div>
               ))}
+              <div className="cv-item" draggable onDragStart={paletteDrag('text', { text: 'Status: {{status}}', bold: true, fontSize: 10, w: 170, color: '#16a34a' })}
+                onClick={() => addElement('text', { text: 'Status: {{status}}', bold: true, fontSize: 10, w: 170, color: '#16a34a' })}>
+                <b>📌 Application Status</b>
+                <span className="muted">prints the live status (Submitted / Shortlisted / Allotted…)</span>
+              </div>
               <div className="cv-item" draggable onDragStart={paletteDrag('text', { text: 'Form No: {{form_no}}', bold: true, fontSize: 10, w: 170 })}
                 onClick={() => addElement('text', { text: 'Form No: {{form_no}}', bold: true, fontSize: 10, w: 170 })}>
                 <b>🔢 Form Number</b>
@@ -730,6 +758,11 @@ export default function Designer() {
                   )}
                   {el.kind === 'line' && <div style={{ borderTop: `2px solid ${el.color}`, marginTop: 3 }} />}
                   {el.kind === 'photo' && <div className="dc-center muted">PHOTO</div>}
+                  {el.kind === 'logo' && (
+                    <img src={`/api/public/logo?v=${logoVer}`} alt="logo" draggable={false}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+                      onError={(e) => { e.target.outerHTML = '<div class="dc-center muted">LOGO</div>'; }} />
+                  )}
                   {el.kind === 'payment' && (() => {
                     const fs = Math.max(6, el.fontSize);
                     const barH = fs + 6;
