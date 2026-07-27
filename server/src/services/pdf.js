@@ -577,6 +577,24 @@ function renderCustomElements(doc, s, elements, data, settings) {
     } else if (el.kind === 'logo') {
       const logoPath = getLogoPath();
       if (logoPath) { try { doc.image(logoPath, x, y, { fit: [w, h] }); } catch {} }
+    } else if (el.kind === 'metaband') {
+      // Info strip: Academic Year / Class / Form Number / Status / Application Date
+      const cells = [
+        { label: 'Academic Year', value: meta.session },
+        { label: 'Class', value: meta.class },
+        { label: 'Form Number', value: meta.form_no },
+        { label: 'Status', value: meta.status },
+        { label: 'Application Date', value: meta.date },
+      ];
+      doc.rect(x, y, w, h).fillColor(el.bg || '#f4f1ea').fill();
+      const cw = w / cells.length;
+      const lfs = Math.max(4.5, fs * 0.78);
+      cells.forEach((c, i) => {
+        doc.fontSize(lfs).font('Helvetica').fillColor(MUTED)
+          .text(c.label.toUpperCase(), x + 8 + i * cw, y + Math.max(3, h * 0.18), { width: cw - 12, lineBreak: false, characterSpacing: 0.4 });
+        doc.fontSize(fs).font('Helvetica-Bold').fillColor(el.color && el.color !== '#111827' ? el.color : '#1c1917')
+          .text(String(c.value || '—'), x + 8 + i * cw, y + Math.max(3, h * 0.18) + lfs + 4, { width: cw - 12, lineBreak: false });
+      });
     } else if (el.kind === 'signature') {
       if (sigBuf) { try { doc.image(sigBuf, x + 2, y + 2, { fit: [w - 4, h - 12] }); } catch {} }
       doc.moveTo(x, y + h - 9).lineTo(x + w, y + h - 9).lineWidth(0.6).strokeColor('#111827').stroke();

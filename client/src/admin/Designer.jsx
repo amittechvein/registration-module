@@ -21,6 +21,7 @@ const defaultsFor = (kind) => ({
   signature: { w: 130, h: 45, fontSize: 8, text: "Parent's Signature" },
   payment: { w: 265, h: 76, fontSize: 8, color: '#14532d', text: 'PAYMENT DETAILS' },
   logo: { w: 52, h: 52, fontSize: 8 },
+  metaband: { w: 523, h: 30, fontSize: 8 },
 }[kind]);
 
 export default function Designer() {
@@ -633,6 +634,10 @@ export default function Designer() {
                   <span>drag or click to add</span>
                 </div>
               ))}
+              <div className="cv-item" draggable onDragStart={paletteDrag('metaband')} onClick={() => addElement('metaband')}>
+                <b>🏷 Info Strip (5 columns)</b>
+                <span className="muted">Academic Year · Class · Form No · Status · Application Date — like the standard templates</span>
+              </div>
               <div className="cv-item" draggable onDragStart={paletteDrag('text', { text: 'Status: {{status}}', bold: true, fontSize: 10, w: 170, color: '#16a34a' })}
                 onClick={() => addElement('text', { text: 'Status: {{status}}', bold: true, fontSize: 10, w: 170, color: '#16a34a' })}>
                 <b>📌 Application Status</b>
@@ -763,6 +768,20 @@ export default function Designer() {
                       style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
                       onError={(e) => { e.target.outerHTML = '<div class="dc-center muted">LOGO</div>'; }} />
                   )}
+                  {el.kind === 'metaband' && (() => {
+                    const fs = Math.max(6, el.fontSize);
+                    const cells = [['ACADEMIC YEAR', '{{session}}'], ['CLASS', '{{class}}'], ['FORM NUMBER', '{{form_no}}'], ['STATUS', '{{status}}'], ['APPLICATION DATE', '{{date}}']];
+                    return (
+                      <div style={{ display: 'flex', width: '100%', height: '100%', background: '#f4f1ea', overflow: 'hidden' }}>
+                        {cells.map(([l, v]) => (
+                          <div key={l} style={{ flex: 1, padding: `${Math.max(2, el.h * 0.14)}px 8px 0`, minWidth: 0 }}>
+                            <div style={{ fontSize: fs * 0.72, color: '#6b7280', letterSpacing: '.05em', whiteSpace: 'nowrap', overflow: 'hidden' }}>{l}</div>
+                            <div style={{ fontSize: fs, fontWeight: 700, color: '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden' }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   {el.kind === 'payment' && (() => {
                     const fs = Math.max(6, el.fontSize);
                     const barH = fs + 6;
