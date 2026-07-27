@@ -525,13 +525,28 @@ function renderCustomElements(doc, s, elements, data, settings) {
       const gStyle = el.labelStyle || (el.showLabels === false ? 'hidden' : 'above');
       fields.forEach((f, idx) => {
         const col = Math.floor(idx / rows), row = idx % rows;
-        const fx = x + col * cellW + 1, fy = y + titleH + row * rowH, fw = cellW - 8;
+        const fy = y + titleH + row * rowH;
         if (fy + rowH > 820) return;
         const v = data[f.id];
         const display = Array.isArray(v) ? v.join(', ')
           : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
           : v != null && v !== '' ? String(v) : '—';
-        fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: el.align || 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);
+        if (el.boxed) {
+          // CLASSIC style: bordered grey label cell + bordered value cell
+          const fx = x + col * cellW;
+          const lblW = Math.max(58, Math.min(115, cellW * 0.42));
+          doc.rect(fx, fy, lblW, rowH).fillColor('#f3f4f6').fill();
+          doc.rect(fx, fy, lblW, rowH).lineWidth(0.5).strokeColor('#c8cdd6').stroke();
+          doc.rect(fx + lblW, fy, cellW - lblW, rowH).lineWidth(0.5).strokeColor('#c8cdd6').stroke();
+          const lfs = Math.max(5, fs * 0.88);
+          doc.fontSize(lfs).font('Helvetica').fillColor('#374151')
+            .text(f.label, fx + 4, fy + Math.max(1.5, (rowH - lfs) / 2 - 1), { width: lblW - 8, height: rowH - 3, ellipsis: true, lineBreak: rowH > 22 });
+          doc.fontSize(fs).font('Helvetica-Bold').fillColor('#111827')
+            .text(display, fx + lblW + 4, fy + Math.max(1.5, (rowH - fs) / 2 - 1), { width: cellW - lblW - 8, height: rowH - 3, ellipsis: true, lineBreak: false });
+        } else {
+          const fx = x + col * cellW + 1, fw = cellW - 8;
+          fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: el.align || 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);
+        }
       });
     } else if (el.kind === 'field') {
       const f = fieldsById[el.fieldId];

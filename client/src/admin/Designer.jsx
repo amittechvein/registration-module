@@ -121,6 +121,33 @@ export default function Designer() {
   };
   const autoLayout = (t) => setElements(autoLayoutEls(t));
 
+  /* Classic register-style layout: photo box + meta rows on top, then
+     full-width sections with bordered grey label cells (like the fixed
+     "Classic" template) — fully editable afterwards. */
+  const classicLayoutEls = (t) => {
+    const els = [
+      { id: uid(), kind: 'photo', x: 36, y: 100, w: 76, h: 88, fontSize: 8 },
+      { id: uid(), kind: 'text', text: '{{form}}', x: 124, y: 100, w: 435, h: 15, fontSize: 11, bold: true, color: '#111827', align: 'left' },
+      { id: uid(), kind: 'text', text: 'Form Number: {{form_no}}', x: 124, y: 119, w: 300, h: 13, fontSize: 9, bold: true, color: '#111827', align: 'left' },
+      { id: uid(), kind: 'text', text: 'Class: {{class}} ({{session}})', x: 124, y: 135, w: 300, h: 13, fontSize: 9, bold: false, color: '#374151', align: 'left' },
+      { id: uid(), kind: 'text', text: 'Status: {{status}}', x: 124, y: 150, w: 300, h: 13, fontSize: 9, bold: false, color: '#374151', align: 'left' },
+      { id: uid(), kind: 'text', text: 'Application Date: {{date}}', x: 124, y: 165, w: 300, h: 13, fontSize: 9, bold: false, color: '#374151', align: 'left' },
+    ];
+    let page = 1, y = 200;
+    for (const s of (t.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const n = (s.fields || []).length;
+      const h = 18 + Math.ceil(Math.max(1, n) / 2) * 18;
+      if (y + h > 800) { if (page === 1) { page = 2; y = 40; } else continue; }
+      els.push({ id: uid(), kind: 'group', sectionId: s.id, x: 36, y, w: 523, h, fontSize: 7.5, cols: 2, boxed: true, labelStyle: 'above', underline: false, color: '#111827', align: 'left', page });
+      y += h + 10;
+    }
+    return els;
+  };
+  const classicLayout = (t) => {
+    setElements(classicLayoutEls(t));
+    setMsg({ type: 'ok', text: 'Classic layout loaded — bordered label/value cells like the Classic template. Move, resize and restyle anything, then Save. (▦ button on any section toggles the boxed style.)' });
+  };
+
   /* Break the fixed school header into separate movable elements:
      logo, school name, address (and line 3), plus the divider line. */
   const ungroupHeader = () => {
@@ -463,9 +490,18 @@ export default function Designer() {
         <div style={{ height: titleH, fontSize: fs + 1, fontWeight: 700, color: el.color, borderBottom: `1px solid ${el.color}`, textAlign: el.align, overflow: 'hidden', whiteSpace: 'nowrap' }}>
           {el.title || sec.title}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoFlow: 'column', gridTemplateRows: `repeat(${rows}, ${rowH}px)`, columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoFlow: 'column', gridTemplateRows: `repeat(${rows}, ${rowH}px)`, columnGap: el.boxed ? 0 : 6 }}>
           {fields.map((f) => {
             const ls = el.labelStyle || 'above';
+            if (el.boxed) {
+              // CLASSIC style preview: grey label cell + value cell with borders
+              return (
+                <div key={f.id} style={{ height: rowH, display: 'flex', overflow: 'hidden' }}>
+                  <div style={{ width: '42%', background: '#f3f4f6', border: '0.5px solid #c8cdd6', fontSize: Math.max(5, fs * 0.85), color: '#374151', padding: '0 3px', display: 'flex', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{f.label}</div>
+                  <div style={{ flex: 1, border: '0.5px solid #c8cdd6', borderLeft: 'none', fontSize: fs, fontWeight: 700, color: '#111827', padding: '0 3px', display: 'flex', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>value…</div>
+                </div>
+              );
+            }
             return (
               <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none', textAlign: el.align || 'left' }}>
                 {ls === 'above' && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>{f.label}</div>}
@@ -497,6 +533,7 @@ export default function Designer() {
           <button className="btn ghost" onClick={() => navigate('/admin/templates')}>Back</button>
           <button className="btn ghost" onClick={undo}>↩ Undo</button>
           <button className="btn ghost" onClick={() => { pushHist(); autoLayout(template); }}>Auto-Layout</button>
+          <button className="btn ghost" title="Load the Classic bordered-cells layout as an editable design" onClick={() => { pushHist(); classicLayout(template); }}>🏛 Classic Layout</button>
           <button className="btn ghost" onClick={() => preview()}>👁 Preview</button>
           <button className="btn green" onClick={save}>Save</button>
         </div>
@@ -833,6 +870,9 @@ export default function Designer() {
                   <select value={sel.cols || 1} onChange={(e) => update({ cols: Number(e.target.value) })}>
                     <option value={1}>1 col</option><option value={2}>2 col</option><option value={3}>3 col</option>
                   </select>
+                )}
+                {sel.kind === 'group' && (
+                  <button onClick={() => update({ boxed: !sel.boxed })} title="Boxed cells — classic bordered style" style={sel.boxed ? { background: '#dbeafe' } : {}}>▦</button>
                 )}
                 {(sel.kind === 'group' || sel.kind === 'field') && (
                   <select value={sel.labelStyle || 'above'} title="Label style" onChange={(e) => update({ labelStyle: e.target.value })}>
