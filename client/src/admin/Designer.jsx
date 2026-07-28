@@ -504,7 +504,7 @@ export default function Designer() {
             }
             return (
               <div key={f.id} style={{ height: rowH, overflow: 'hidden', borderBottom: el.underline !== false ? '1px solid #e2e8f0' : 'none', textAlign: el.align || 'left' }}>
-                {ls === 'above' && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>{f.label}</div>}
+                {ls === 'above' && rowH >= 14 && <div style={{ fontSize: Math.max(5, fs * 0.7), color: '#6b7280', lineHeight: 1.15, overflow: 'hidden', maxHeight: Math.max(8, rowH - fs - 4) }}>{f.label}</div>}
                 <div style={{ fontSize: fs, color: '#111827', fontWeight: el.bold ? 700 : 400, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                   {ls === 'inline' && <span style={{ color: '#6b7280', fontWeight: 400 }}>{f.label}: </span>}
                   value…
@@ -787,7 +787,13 @@ export default function Designer() {
                         autoFocus
                         className="cv-editing"
                         onMouseDown={(e) => e.stopPropagation()}
-                        onBlur={(e) => { update({ text: e.target.textContent }); setEditingId(null); }}
+                        onBlur={(e) => {
+                          // never save EMPTY text — an empty element shows a placeholder
+                          // on the canvas but prints nothing, which looks like a bug
+                          const t = (e.target.textContent || '').trim();
+                          update({ text: t || (el.kind === 'signature' ? "Parent's Signature" : 'Add your text') });
+                          setEditingId(null);
+                        }}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
                       >
                         {el.text}
@@ -886,8 +892,12 @@ export default function Designer() {
                 <button onClick={() => { update({ page: (sel.page || 1) === 1 ? 2 : 1 }); setSelId(null); }} title={`Move to page ${(sel.page || 1) === 1 ? 2 : 1}`}>
                   📄{(sel.page || 1) === 1 ? '2' : '1'}
                 </button>
-                {sel.kind === 'payment' && (
-                  <input type="text" value={sel.text || ''} placeholder="PAYMENT DETAILS" style={{ marginTop: 0, width: 150 }}
+                {['payment', 'text', 'signature'].includes(sel.kind) && (
+                  <input
+                    type="text" value={sel.text || ''}
+                    placeholder={sel.kind === 'payment' ? 'PAYMENT DETAILS' : sel.kind === 'signature' ? "e.g. Parent's Signature" : 'Type the text…'}
+                    title="Edit the text of this element"
+                    style={{ marginTop: 0, width: 170 }}
                     onMouseDown={(e) => e.stopPropagation()} onChange={(e) => update({ text: e.target.value })} />
                 )}
                 <button onClick={duplicateSel} title="Duplicate (Ctrl+D)">⧉</button>

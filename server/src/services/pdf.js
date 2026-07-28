@@ -426,9 +426,13 @@ function fieldCell(doc, { x, y, w, h, fs, bold, color, align, labelStyle, underl
     let vy = y;
     if (h >= 14) {
       const lfs = Math.max(4.5, fs * 0.7);
-      doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280')
-        .text(label, x, y + 1, { width: w, height: lfs + 2, ellipsis: true, lineBreak: false, align });
-      vy = y + lfs + 3;
+      // Long labels WRAP over multiple lines when the cell is tall enough
+      // (e.g. declaration text) instead of being cut with "…".
+      doc.fontSize(lfs).font('Helvetica').fillColor('#6b7280');
+      const maxLabelH = Math.max(lfs + 2, h - fs - 5); // leave room for the value line
+      const labelH = Math.min(doc.heightOfString(label, { width: w }), maxLabelH);
+      doc.text(label, x, y + 1, { width: w, height: labelH + 1, ellipsis: true, align });
+      vy = y + labelH + 3;
     }
     doc.fontSize(fs).font(vFont).fillColor(color).text(display, x, vy, { width: w, height: Math.max(fs + 2, y + h - vy - 2), ellipsis: true, align });
   }
