@@ -137,7 +137,7 @@ export default function Designer() {
     for (const s of (t.sections || []).slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
       const n = (s.fields || []).length;
       const h = 18 + Math.ceil(Math.max(1, n) / 2) * 18;
-      if (y + h > 800) { if (page === 1) { page = 2; y = 40; } else continue; }
+      if (y + h > 800) { if (page === 1) { page = 2; y = 110; } else continue; }
       els.push({ id: uid(), kind: 'group', sectionId: s.id, x: 36, y, w: 523, h, fontSize: 7.5, cols: 2, boxed: true, labelStyle: 'above', underline: false, color: '#111827', align: 'left', page });
       y += h + 10;
     }
@@ -603,7 +603,7 @@ export default function Designer() {
         </span>
       </div>
 
-      {selId === '__header' && settings.showHeader && (
+      {selId === '__header' && (settings.showHeader || settings.headerPage2) && (
         <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap', padding: '12px 16px', borderLeft: '4px solid #b91c1c' }}>
           <b style={{ alignSelf: 'center' }}>✏ School Header</b>
           <label className="fld" style={{ margin: 0, width: 220 }}>School name (line 1)
@@ -706,7 +706,7 @@ export default function Designer() {
               onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-el')) e.preventDefault(); }}
               onDrop={canvasDrop}
             >
-              {settings.showHeader ? (
+              {(pageView === 1 ? settings.showHeader : !!settings.headerPage2) ? (
                 (() => {
                   // EXACTLY mirrors the PDF's fixed header geometry:
                   // left → logo 52pt at (36,32), name 16pt at y36, rule at y88 (content from 97)
@@ -750,7 +750,7 @@ export default function Designer() {
                     </div>
                   );
                 })()
-              ) : settings.topSpace > 0 ? (
+              ) : pageView === 1 && settings.topSpace > 0 ? (
                 <div className="dc-reserved" style={{ height: settings.topSpace }}>reserved top space — {settings.topSpace}pt</div>
               ) : null}
 
