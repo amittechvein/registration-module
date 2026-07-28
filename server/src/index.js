@@ -44,10 +44,18 @@ app.use('/api/public', require('./routes/public'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// Serve built React client if present (production single-server mode)
+// Serve built React client if present (production single-server mode).
+// Hashed asset files cache forever; index.html must NEVER be cached so every
+// deployment is picked up without users needing Ctrl+F5.
 const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
-app.use(express.static(clientDist));
+app.use(express.static(clientDist, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    else if (/[.-][A-Za-z0-9_-]{8}\.(js|css)$/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
+}));
 app.get(/^(?!\/api).*/, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.join(clientDist, 'index.html'), (err) => {
     if (err) res.status(404).send('Client not built. Run: cd client && npm run build');
   });
