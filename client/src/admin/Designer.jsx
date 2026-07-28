@@ -155,16 +155,18 @@ export default function Designer() {
     const color = h.nameColor || '#b91c1c';
     const name = h.name || school.name || 'School Name';
     const address = h.address || school.address || '';
+    const pg = pageView; // ungroup onto the page currently being viewed
     const els = [];
-    if (h.showLogo !== false) els.push({ id: uid(), kind: 'logo', x: 36, y: 32, w: 52, h: 52, fontSize: 8, color });
-    els.push({ id: uid(), kind: 'text', text: name, x: 98, y: 36, w: 430, h: 20, fontSize: 16, bold: true, color, align: 'left' });
-    if (address) els.push({ id: uid(), kind: 'text', text: address, x: 98, y: 58, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left' });
-    if (h.line3) els.push({ id: uid(), kind: 'text', text: h.line3, x: 98, y: 70, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left' });
-    els.push({ id: uid(), kind: 'line', x: 36, y: 86, w: 523, h: 8, fontSize: 8, color });
+    if (h.showLogo !== false) els.push({ id: uid(), kind: 'logo', x: 36, y: 32, w: 52, h: 52, fontSize: 8, color, page: pg });
+    els.push({ id: uid(), kind: 'text', text: name, x: 98, y: 36, w: 430, h: 20, fontSize: 16, bold: true, color, align: 'left', page: pg });
+    if (address) els.push({ id: uid(), kind: 'text', text: address, x: 98, y: 58, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left', page: pg });
+    if (h.line3) els.push({ id: uid(), kind: 'text', text: h.line3, x: 98, y: 70, w: 430, h: 12, fontSize: 8.5, bold: false, color: '#6b7280', align: 'left', page: pg });
+    els.push({ id: uid(), kind: 'line', x: 36, y: 86, w: 523, h: 8, fontSize: 8, color, page: pg });
     setElements((cur) => [...els, ...cur]);
-    setSettings({ ...settings, showHeader: false, topSpace: 0 });
+    // turn off the fixed header for THIS page only
+    setSettings({ ...settings, ...(pg === 1 ? { showHeader: false, topSpace: 0 } : { headerPage2: false }) });
     setSelId(null);
-    setMsg({ type: 'ok', text: 'Header ungrouped — logo, school name, address and the line are now separate elements you can drag, resize and restyle. Tick "School header" again to return to the fixed header (then delete these elements).' });
+    setMsg({ type: 'ok', text: `Header on page ${pg} ungrouped — logo, school name, address and the line are now separate elements on this page. Tick "${pg === 1 ? 'School header' : 'header on page 2'}" again to return to the fixed header (then delete these elements).` });
   };
 
   /* ------------------- move / resize with smart guides ------------------- */
