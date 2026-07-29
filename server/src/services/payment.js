@@ -10,15 +10,27 @@ async function getGateway() {
   return { keyId, keySecret, mock };
 }
 
-async function createOrder(amountRupees, receipt) {
+/**
+ * Create a Razorpay order. `notes` (key → value strings) are attached to the
+ * order and shown in the Razorpay dashboard — so even FAILED or abandoned
+ * transactions can be identified (student, phone, form, submission id).
+ * Razorpay allows max 15 notes, values up to 256 chars.
+ */
+async function createOrder(amountRupees, receipt, notes = {}) {
   const gw = await getGateway();
   const amountPaise = Math.round(Number(amountRupees) * 100);
   if (gw.mock) {
     return { mock: true, id: 'order_mock_' + crypto.randomBytes(8).toString('hex'), amount: amountPaise, currency: 'INR', keyId: null };
   }
+  const cleanNotes = {};
+  for (const [k, v] of Object.entries(notes)) {
+    if (v == null || v === '') continue;
+    cleanNotes[String(k).slice(0, 40)] = String(v).slice(0, 256);
+    if (Object.keys(cleanNotes).length >= 15) break;
+  }
   const Razorpay = require('razorpay');
   const razorpay = new Razorpay({ key_id: gw.keyId, key_secret: gw.keySecret });
-  const order = await razorpay.orders.create({ amount: amountPaise, currency: 'INR', receipt });
+  const order = await razorpay.orders.create({ amount: amountPaise, currency: 'INR', receipt, notes: cleanNotes });
   return { mock: false, id: order.id, amount: order.amount, currency: order.currency, keyId: gw.keyId };
 }
 

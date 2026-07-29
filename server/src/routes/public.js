@@ -389,8 +389,39 @@ router.post('/forms/:slug/submit', async (req, res) => {
 
   const price = Number(a.price || 0);
   if (price > 0 && a.onlinePaymentEnabled) {
-    // create payment order; submission completes after payment verification
-    const order = await payment.createOrder(price, `sub_${sub.id}`);
+    // Attach identifying notes to the Razorpay order so even FAILED or
+    // abandoned payments can be traced back to the applicant in the
+    // Razorpay dashboard (Orders/Payments → Notes).
+    const applicant = await Applicant.findByPk(req.applicant.id);
+    const full = await FormActivation.findByPk(a.id, {
+      include: [
+        { model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' },
+        { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] },
+      ],
+    });
+    const allFields = (full?.template?.sections || []).flatMap((sec) => sec.fields);
+    const byStudentField = (key) => {
+      const f = allFields.find((x) => x.studentField === key);
+      const v = f ? data[f.id] : null;
+      return v != null && typeof v !== 'object' ? String(v) : '';
+    };
+    const studentName = [byStudentField('firstName'), byStudentField('lastName')].filter(Boolean).join(' ');
+    // Phone: prefer the number the parent ENTERED IN THE FORM (Mobile/WhatsApp
+    // field), fall back to any phone-type field, then to the login number.
+    const firstPhoneField = allFields.find((x) => x.fieldType === 'phone');
+    const formPhone = byStudentField('guardianPhone')
+      || (firstPhoneField && typeof data[firstPhoneField.id] !== 'object' ? String(data[firstPhoneField.id] || '') : '');
+    const notes = {
+      student_name: studentName,
+      parent_name: applicant?.name || byStudentField('fatherName'),
+      phone: formPhone || applicant?.phone || '',
+      login_phone: applicant?.phone && applicant.phone !== formPhone ? applicant.phone : '',
+      form: a.title,
+      class: `${full?.classRoom?.name || ''} ${full?.session?.name || ''}`.trim(),
+      submission_id: `sub_${sub.id}`,
+      portal: 'form.techvein.org',
+    };
+    const order = await payment.createOrder(price, `sub_${sub.id}`, notes);
     await Payment.create({ submissionId: sub.id, orderId: order.id, amount: price, status: 'created' });
     await sub.update({ amount: price, paymentStatus: 'pending' });
     return res.json({ requiresPayment: true, order, keyId: order.keyId, mock: order.mock, submissionId: sub.id });
