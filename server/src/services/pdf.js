@@ -545,8 +545,13 @@ function renderCustomElements(doc, s, elements, data, settings) {
           const lfs = Math.max(5, fs * 0.88);
           doc.fontSize(lfs).font('Helvetica').fillColor('#374151')
             .text(f.label, fx + 4, fy + Math.max(1.5, (rowH - lfs) / 2 - 1), { width: lblW - 8, height: rowH - 3, ellipsis: true, lineBreak: rowH > 22 });
-          doc.fontSize(fs).font('Helvetica-Bold').fillColor('#111827')
-            .text(display, fx + lblW + 4, fy + Math.max(1.5, (rowH - fs) / 2 - 1), { width: cellW - lblW - 8, height: rowH - 3, ellipsis: true, lineBreak: false });
+          // Value WRAPS across lines within the cell (long addresses etc.),
+          // vertically centered; only truncates if it truly can't fit.
+          const availW = cellW - lblW - 8;
+          doc.fontSize(fs).font('Helvetica-Bold');
+          const vH = Math.min(doc.heightOfString(display, { width: availW }), rowH - 3);
+          doc.fillColor('#111827')
+            .text(display, fx + lblW + 4, fy + Math.max(1.5, (rowH - vH) / 2), { width: availW, height: rowH - 3, ellipsis: true });
         } else {
           const fx = x + col * cellW + 1, fw = cellW - 8;
           fieldCell(doc, { x: fx, y: fy, w: fw, h: rowH, fs, bold: el.bold, color: '#111827', align: el.align || 'left', labelStyle: gStyle, underline: el.underline !== false }, f.label, display);

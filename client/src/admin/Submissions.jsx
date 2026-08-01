@@ -122,7 +122,8 @@ export default function Submissions() {
                 {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
               </>
             )}
-            {hasPerm('edit') && (
+            {/* Delete button hidden after test-data cleanup (change false → hasPerm('edit') to re-enable) */}
+            {false && (
               <button
                 className="btn danger"
                 style={{ marginLeft: 'auto' }}
