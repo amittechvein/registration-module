@@ -122,6 +122,27 @@ export default function Submissions() {
                 {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
               </>
             )}
+            {hasPerm('edit') && (
+              <button
+                className="btn danger"
+                style={{ marginLeft: 'auto' }}
+                title="Permanently delete the selected submissions (for cleaning up test entries)"
+                onClick={async () => {
+                  const first = window.confirm(`Delete ${sel.length} submission(s) PERMANENTLY?\n\nThis removes their form data, payments, attachments and messages. This cannot be undone.`);
+                  if (!first) return;
+                  const second = window.confirm('Are you really sure? Real applicant submissions should never be deleted.');
+                  if (!second) return;
+                  try {
+                    const { data } = await adminApi.post('/submissions/bulk-delete', { ids: sel });
+                    setBulkNote(`🗑 Deleted ${data.count} submission(s)`);
+                    setSel([]);
+                    load();
+                  } catch (e) { setBulkNote('❌ ' + errMsg(e)); }
+                }}
+              >
+                🗑 Delete {sel.length}
+              </button>
+            )}
           </div>
           {hasPerm('communicate') && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>

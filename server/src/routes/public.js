@@ -344,9 +344,18 @@ async function assignFormNoAndFirstStatus(sub, a) {
   const tx = await sequelize.transaction();
   try {
     const act = await FormActivation.findByPk(a.id, { transaction: tx, lock: tx.LOCK ? tx.LOCK.UPDATE : undefined });
-    const num = act.formNoNext;
+    // Skip numbers that are already used — so after deleting test entries the
+    // counter can be reset to 1 and numbering fills gaps, then jumps over
+    // existing numbers automatically (e.g. 0001..0007, existing 0008..0011, 0012…)
+    let num = act.formNoNext;
+    let formNo;
+    for (let guard = 0; guard < 10000; guard++) {
+      formNo = `${act.formNoPrefix || ''}${String(num).padStart(act.formNoPad || 4, '0')}${act.formNoSuffix || ''}`;
+      const clash = await Submission.findOne({ where: { activationId: act.id, formNo }, attributes: ['id'], transaction: tx });
+      if (!clash) break;
+      num++;
+    }
     await act.update({ formNoNext: num + 1 }, { transaction: tx });
-    const formNo = `${act.formNoPrefix || ''}${String(num).padStart(act.formNoPad || 4, '0')}${act.formNoSuffix || ''}`;
     await sub.update({ formNo, isDraft: false, submittedAt: new Date(), statusId: firstStatus?.id || null }, { transaction: tx });
     await tx.commit();
   } catch (e) {

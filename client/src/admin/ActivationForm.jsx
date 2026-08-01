@@ -18,7 +18,7 @@ export default function ActivationForm() {
   const [form, setForm] = useState({
     title: '', templateId: '', sessionId: '', classId: '', price: 0,
     onlinePaymentEnabled: true, dobValidationEnabled: false, dobMin: '', dobMax: '',
-    formNoPrefix: 'REG-', formNoSuffix: '', formNoPad: 4,
+    formNoPrefix: 'REG-', formNoSuffix: '', formNoPad: 4, formNoNext: 1,
     instructionsHtml: '', startDate: '', endDate: '', active: false, pdfTemplate: 'modern',
   });
   const [statuses, setStatuses] = useState(defaultStatuses);
@@ -35,7 +35,7 @@ export default function ActivationForm() {
           title: a.title, templateId: a.templateId, sessionId: a.sessionId, classId: a.classId,
           price: Number(a.price), onlinePaymentEnabled: a.onlinePaymentEnabled,
           dobValidationEnabled: a.dobValidationEnabled, dobMin: a.dobMin || '', dobMax: a.dobMax || '',
-          formNoPrefix: a.formNoPrefix || '', formNoSuffix: a.formNoSuffix || '', formNoPad: a.formNoPad || 4,
+          formNoPrefix: a.formNoPrefix || '', formNoSuffix: a.formNoSuffix || '', formNoPad: a.formNoPad || 4, formNoNext: a.formNoNext || 1,
           instructionsHtml: a.instructionsHtml || '', startDate: a.startDate || '', endDate: a.endDate || '',
           active: a.active, pdfTemplate: a.pdfTemplate || 'modern',
         });
@@ -160,7 +160,12 @@ export default function ActivationForm() {
             <input type="text" value={form.formNoSuffix} onChange={(e) => up({ formNoSuffix: e.target.value })} placeholder="e.g. /26" />
           </label>
         </div>
-        <div className="muted">Example: {form.formNoPrefix}{String(1).padStart(form.formNoPad || 4, '0')}{form.formNoSuffix}</div>
+        <div className="grid cols-3">
+          <label className="fld">Next number (counter)
+            <input type="number" min="1" value={form.formNoNext} onChange={(e) => up({ formNoNext: Math.max(1, Number(e.target.value) || 1) })} />
+          </label>
+        </div>
+        <div className="muted">Example: {form.formNoPrefix}{String(form.formNoNext || 1).padStart(form.formNoPad || 4, '0')}{form.formNoSuffix} — if a number is already used by an existing submission it is skipped automatically, so resetting the counter never creates duplicates.</div>
       </div>
 
       <div className="card">

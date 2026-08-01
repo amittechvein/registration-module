@@ -590,6 +590,27 @@ router.post('/submissions/bulk-status', requirePerm('status'), async (req, res) 
   res.json(results);
 });
 
+// ---------- Delete submissions (test data cleanup — audited) ----------
+router.post('/submissions/bulk-delete', requirePerm('edit'), async (req, res) => {
+  const ids = (req.body.ids || []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'No submissions selected' });
+  const subs = await Submission.findAll({ where: { id: ids }, attributes: ['id', 'formNo'] });
+  if (!subs.length) return res.status(404).json({ error: 'Submissions not found' });
+  // detach/remove dependent records first (FK safety)
+  await Student.update({ submissionId: null }, { where: { submissionId: ids } });
+  await Payment.destroy({ where: { submissionId: ids } });
+  await Attachment.destroy({ where: { submissionId: ids } });
+  await Communication.destroy({ where: { submissionId: ids } });
+  await StatusLog.destroy({ where: { submissionId: ids } });
+  const count = await Submission.destroy({ where: { id: ids } });
+  await audit(req, 'submission.delete', {
+    entity: 'Submission',
+    summary: `DELETED ${count} submission(s): ${subs.map((s) => s.formNo || '#' + s.id).join(', ')}`,
+    details: { ids },
+  });
+  res.json({ ok: true, count });
+});
+
 // Communication with applicant
 router.post('/submissions/:id/communications', requirePerm('communicate'), async (req, res) => {
   const s = await Submission.findByPk(req.params.id, { include: [{ model: Applicant, as: 'applicant' }] });
