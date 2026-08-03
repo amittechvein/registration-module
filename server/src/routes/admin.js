@@ -514,6 +514,16 @@ router.get('/submissions', requirePerm('submissions'), async (req, res) => {
 // is captured at Razorpay but the form stays a pending DRAFT. This endpoint
 // asks Razorpay for the true status of every pending order and finalizes the
 // forms whose payment was actually captured.
+/** Run async fn over items in parallel batches (keeps requests fast enough
+ *  to never hit the nginx 60s gateway timeout). */
+async function inBatches(items, size, fn) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  }
+  return out;
+}
+
 /** Collect every Razorpay payment attempt across ALL orders of a submission. */
 async function collectSubmissionPayments(sub) {
   const { listOrderPayments } = require('../services/payment');
@@ -562,28 +572,26 @@ router.post('/payments/reconcile', requirePerm('status'), async (req, res) => {
     include: [{ model: Applicant, as: 'applicant' }, { model: FormActivation, as: 'activation' }],
   });
 
-  const results = [];
-  let fixed = 0;
-  for (const sub of subs) {
+  const results = (await inBatches(subs, 5, async (sub) => {
     const who = `${sub.formNo || 'DRAFT #' + sub.id} · ${sub.applicant?.name || sub.applicant?.phone || ''}`;
     try {
-      if (sub.paymentStatus === 'paid') continue;
+      if (sub.paymentStatus === 'paid') return null;
       const { orders, attempts, errors } = await collectSubmissionPayments(sub);
       const captured = attempts.filter((a) => a.status === 'captured');
       if (captured.length === 1) {
         await applyPaymentToSubmission(sub, captured[0], orders);
-        fixed++;
-        results.push({ id: sub.id, ok: true, note: `${who} → payment ${captured[0].paymentId} (${captured[0].method}) CAPTURED — marked paid, form no ${sub.formNo}` });
-      } else if (captured.length > 1) {
-        results.push({ id: sub.id, ok: false, multi: true, note: `${who} → ⚠ ${captured.length} CAPTURED payments (${captured.map((c) => c.paymentId).join(', ')}) — parent paid twice! Use the 🔄 button on this row to choose which payment to keep; refund the other in Razorpay.` });
-      } else {
-        const last = attempts.length ? attempts[attempts.length - 1].status : 'no payment attempt';
-        results.push({ id: sub.id, ok: false, note: `${who} → Razorpay says: ${last}${errors.length ? ' · ' + errors.join('; ') : ''}` });
+        return { id: sub.id, ok: true, fixed: true, note: `${who} → payment ${captured[0].paymentId} (${captured[0].method}) CAPTURED — marked paid, form no ${sub.formNo}` };
       }
+      if (captured.length > 1) {
+        return { id: sub.id, ok: false, multi: true, note: `${who} → ⚠ ${captured.length} CAPTURED payments (${captured.map((c) => c.paymentId).join(', ')}) — parent paid twice! Use the 🔄 button on this row to choose which payment to keep; refund the other in Razorpay.` };
+      }
+      const last = attempts.length ? attempts[attempts.length - 1].status : 'no payment attempt';
+      return { id: sub.id, ok: false, note: `${who} → Razorpay says: ${last}${errors.length ? ' · ' + errors.join('; ') : ''}` };
     } catch (e) {
-      results.push({ id: sub.id, ok: false, note: `${who} → check failed: ${e.message}` });
+      return { id: sub.id, ok: false, note: `${who} → check failed: ${e.message}` };
     }
-  }
+  })).filter(Boolean);
+  const fixed = results.filter((r) => r.fixed).length;
   await audit(req, 'payment.reconcile', {
     entity: 'Payment',
     summary: `Payment reconciliation: ${subs.length} submission(s) checked, ${fixed} recovered & finalized`,
@@ -660,7 +668,7 @@ router.post('/payments/refresh', requirePerm('submissions'), async (req, res) =>
   const ids = (req.body.ids || []).map(Number).filter(Boolean).slice(0, 100);
   const rows = await Payment.findAll({ where: { id: ids } });
   const live = {};
-  for (const p of rows) {
+  await inBatches(rows, 6, async (p) => {
     try {
       let info = null;
       if (p.paymentId && p.paymentId.startsWith('pay_') && p.paymentId !== 'pay_mock') {
@@ -674,7 +682,8 @@ router.post('/payments/refresh', requirePerm('submissions'), async (req, res) =>
       else if (info.refundStatus === 'partial') await p.update({ status: 'partial_refund' });
       live[p.id] = info;
     } catch (e) { live[p.id] = { error: e.message }; }
-  }
+    return null;
+  });
   res.json({ live });
 });
 

@@ -24,12 +24,18 @@ export default function Payments() {
     return hay.includes(q.toLowerCase());
   });
 
+  const [progress, setProgress] = useState('');
   const refresh = async () => {
-    setBusy(true); setErr('');
+    setBusy(true); setErr(''); setProgress('');
     try {
-      const ids = filtered.slice(0, 100).map((r) => r.id);
-      const { data } = await adminApi.post('/payments/refresh', { ids });
-      setLive((l) => ({ ...l, ...data.live }));
+      // small chunks → each request finishes in seconds (no gateway timeout)
+      const ids = filtered.slice(0, 200).map((r) => r.id);
+      for (let i = 0; i < ids.length; i += 12) {
+        const chunk = ids.slice(i, i + 12);
+        const { data } = await adminApi.post('/payments/refresh', { ids: chunk });
+        setLive((l) => ({ ...l, ...data.live }));
+        setProgress(`checked ${Math.min(i + 12, ids.length)}/${ids.length}`);
+      }
       load();
     } catch (e) { setErr(errMsg(e)); }
     setBusy(false);
