@@ -182,11 +182,25 @@ function findImage(s, data, match) {
   return null;
 }
 
+/** SAFETY: pdfkit's text wrapping is O(n²) — a 100k-char value takes ~30s of
+ *  CPU and a base64-embedded image pasted into a field takes MINUTES, freezing
+ *  the whole server (504 → crash). Clamp every rendered string to a sane size
+ *  and replace raw base64/data-URL blobs with a short placeholder. */
+const MAX_TEXT = 1200;
+function clampText(v) {
+  let t = String(v ?? '');
+  if (t.length > 400 && (/^data:[\w.+-]+\/[\w.+-]+;base64,/.test(t) || /^[A-Za-z0-9+/=\r\n]+$/.test(t.slice(0, 2000)))) {
+    return '[embedded file/image data]';
+  }
+  return t.length > MAX_TEXT ? t.slice(0, MAX_TEXT) + ' …' : t;
+}
+
 function displayValue(data, f) {
   const v = data[f.id];
-  return Array.isArray(v) ? v.join(', ')
+  const out = Array.isArray(v) ? v.map((x) => String(x)).join(', ')
     : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
     : v != null && v !== '' ? String(v) : '—';
+  return clampText(out);
 }
 
 /* ------------------------- flow-based templates ------------------------- */
@@ -345,11 +359,11 @@ function drawClassicPdf(doc, s) {
 
     const items = (sec.fields || []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((f) => {
       const v = data[f.id];
-      const display = Array.isArray(v) ? v.join(', ')
+      const display = clampText(Array.isArray(v) ? v.join(', ')
         : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
-        : v != null && v !== '' ? String(v) : '';
+        : v != null && v !== '' ? String(v) : '');
       const wide = f.label.length > 42 || String(display).length > 44 || f.fieldType === 'textarea' || f.fieldType === 'checkbox';
-      return { label: f.label, value: display, wide };
+      return { label: clampText(f.label), value: display, wide };
     });
     let i = 0;
     while (i < items.length) {
@@ -534,10 +548,7 @@ function renderCustomElements(doc, s, elements, data, settings) {
         const col = Math.floor(idx / rows), row = idx % rows;
         const fy = y + titleH + row * rowH;
         if (fy + rowH > 820) return;
-        const v = data[f.id];
-        const display = Array.isArray(v) ? v.join(', ')
-          : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
-          : v != null && v !== '' ? String(v) : '—';
+        const display = displayValue(data, f);
         if (el.boxed) {
           // CLASSIC style: bordered grey label cell + bordered value cell.
           // ALL widths are clamped positive — negative width makes pdfkit's
@@ -566,10 +577,7 @@ function renderCustomElements(doc, s, elements, data, settings) {
     } else if (el.kind === 'field') {
       const f = fieldsById[el.fieldId];
       if (!f) continue;
-      const v = data[el.fieldId];
-      const display = Array.isArray(v) ? v.join(', ')
-        : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
-        : v != null && v !== '' ? String(v) : '—';
+      const display = displayValue(data, f);
       const fStyle = el.labelStyle || (el.showLabel === false ? 'hidden' : 'above');
       fieldCell(doc, { x: x + 1, y, w: w - 2, h, fs, bold: el.bold, color, align, labelStyle: fStyle, underline: !!el.underline }, el.labelText || f.label, display);
     } else if (el.kind === 'payment') {

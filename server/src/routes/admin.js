@@ -902,7 +902,10 @@ router.get('/export/excel', requirePerm('export'), async (req, res) => {
     };
     for (const c of fieldCols) {
       const v = data[c.id];
-      row['f' + c.id] = Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? (v.filename || '[file]') : v ?? '';
+      let cell = Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? (v.filename || '[file]') : v ?? '';
+      // Excel's hard cell limit is 32,767 chars; embedded base64 blobs also bloat the file
+      if (typeof cell === 'string' && cell.length > 2000) cell = cell.slice(0, 2000) + ' …[truncated]';
+      row['f' + c.id] = cell;
     }
     ws.addRow(row);
   }
@@ -922,33 +925,29 @@ const submissionPdfInclude = [
   { model: Attachment, as: 'attachments' },
 ];
 
+// PDFs render in a worker thread with a hard timeout (see services/pdf-render.js)
+// so bad data can NEVER freeze/OOM the server again — worst case the download
+// is a small error-PDF and the offending form is named in the server log.
+const { renderPdfBuffer } = require('../services/pdf-render');
+
 router.get('/submissions/:id/pdf', requirePerm('export'), async (req, res) => {
   const s = await Submission.findByPk(req.params.id, { include: submissionPdfInclude });
   if (!s) return res.status(404).json({ error: 'Not found' });
-  const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
+  const buf = await renderPdfBuffer([s.toJSON()], { timeoutMs: 20000, label: `form ${s.formNo || '#' + s.id}` });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="form-${s.formNo || s.id}.pdf"`);
-  doc.pipe(res);
-  drawSubmissionPdf(doc, s);
-  doc.end();
+  res.send(buf);
 });
 
 router.get('/export/pdf', requirePerm('export'), async (req, res) => {
   const rows = await findSubmissions(req.query);
   const full = await Submission.findAll({ where: { id: rows.map((r) => r.id).length ? rows.map((r) => r.id) : [0] }, include: submissionPdfInclude });
   const byId = new Map(full.map((f) => [f.id, f]));
-  const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
+  const subs = rows.map((r) => (byId.get(r.id) || r).toJSON());
+  const buf = await renderPdfBuffer(subs, { timeoutMs: Math.min(55000, 15000 + subs.length * 1500), label: `bulk export (${subs.length} forms)` });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="all-submissions.pdf"');
-  doc.pipe(res);
-  rows.forEach((r, i) => {
-    if (i > 0) doc.addPage();
-    drawSubmissionPdf(doc, byId.get(r.id) || r);
-  });
-  if (!rows.length) doc.fontSize(12).text('No submissions match the selected filters.');
-  doc.end();
+  res.send(buf);
 });
 
 // ---------- School logo (used in headers & PDFs) ----------

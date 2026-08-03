@@ -471,13 +471,12 @@ const myPdfInclude = [
 router.get('/my-submissions/:id/pdf', async (req, res) => {
   const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: myPdfInclude });
   if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });
-  const PDFDocument = require('pdfkit');
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 24, bottom: 20, left: 36, right: 36 } });
+  // Rendered in a worker thread with a hard timeout — bad data can never freeze the server
+  const { renderPdfBuffer } = require('../services/pdf-render');
+  const buf = await renderPdfBuffer([s.toJSON()], { timeoutMs: 20000, label: `form ${s.formNo || '#' + s.id}` });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="application-${s.formNo || s.id}.pdf"`);
-  doc.pipe(res);
-  drawSubmissionPdf(doc, s);
-  doc.end();
+  res.send(buf);
 });
 
 router.get('/my-submissions/:id/receipt', async (req, res) => {

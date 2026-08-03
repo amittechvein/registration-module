@@ -68,7 +68,9 @@ async function buildExcelBuffer() {
     };
     for (const c of fieldCols) {
       const v = data[c.id];
-      row['f' + c.id] = Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? (v.filename || '[file]') : v ?? '';
+      let cell = Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? (v.filename || '[file]') : v ?? '';
+      if (typeof cell === 'string' && cell.length > 2000) cell = cell.slice(0, 2000) + ' …[truncated]';
+      row['f' + c.id] = cell;
     }
     ws.addRow(row);
   }
