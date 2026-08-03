@@ -870,7 +870,12 @@ router.get('/export/excel', requirePerm('export'), async (req, res) => {
 
   // union of all field labels across involved templates
   const templateIds = [...new Set(rows.map((r) => r.activation?.templateId).filter(Boolean))];
-  const sections = await FormSection.findAll({ where: { templateId: templateIds.length ? templateIds : [0] }, include: [{ model: FormField, as: 'fields' }], order: [['sortOrder', 'ASC']] });
+  const sections = await FormSection.findAll({
+    where: { templateId: templateIds.length ? templateIds : [0] },
+    include: [{ model: FormField, as: 'fields' }],
+    // columns must follow the FORM sequence: section order, then field order
+    order: [['templateId', 'ASC'], ['sortOrder', 'ASC'], [{ model: FormField, as: 'fields' }, 'sortOrder', 'ASC']],
+  });
   const fieldCols = [];
   for (const sec of sections) for (const f of sec.fields) fieldCols.push({ id: f.id, label: `${f.label}` });
 

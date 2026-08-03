@@ -77,7 +77,8 @@ export default function Submissions() {
           <div className="muted">{rows.length} result(s)</div>
         </div>
         <div>
-          {hasPerm('status') && (
+          {/* Bulk reconcile hidden — per-row 🔄 buttons cover it (change false → hasPerm('status') to re-enable) */}
+          {false && (
             <button
               className="btn ghost"
               disabled={recon === 'running'}

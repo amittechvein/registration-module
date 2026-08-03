@@ -42,7 +42,12 @@ export const errMsg = (e) =>
 export async function downloadBlob(url, filename, tokenKey = 'adminToken') {
   const t = sessionStorage.getItem(tokenKey);
   const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
-  if (!res.ok) throw new Error('Download failed');
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.text()).slice(0, 200); } catch {}
+    window.alert(`Download failed (HTTP ${res.status}). ${detail}`);
+    throw new Error('Download failed');
+  }
   const blob = await res.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

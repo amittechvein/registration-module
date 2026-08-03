@@ -18,7 +18,10 @@ export default function Payments() {
   const load = () => adminApi.get('/payments').then((r) => setRows(r.data)).catch((e) => setErr(errMsg(e)));
   useEffect(() => { load(); }, []);
 
+  const [showAll, setShowAll] = useState(false);
   const filtered = rows.filter((r) => {
+    // hide abandoned "created" orders (no payment attempt) unless asked
+    if (!showAll && r.status === 'created') return false;
     if (!q.trim()) return true;
     const hay = [r.paymentId, r.orderId, r.formNo, r.applicant, r.phone, r.form].filter(Boolean).join(' ').toLowerCase();
     return hay.includes(q.toLowerCase());
@@ -69,6 +72,9 @@ export default function Payments() {
       <div className="card">
         <div className="toolbar">
           <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search payment id / order id / form no / name / phone…" style={{ width: 340 }} />
+          <label className="check" style={{ margin: 0 }}>
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> show abandoned attempts ("created")
+          </label>
           <span className="muted" style={{ marginLeft: 'auto' }}>{filtered.length} of {rows.length} payment order(s)</span>
         </div>
         <table className="tbl">

@@ -629,10 +629,22 @@ function renderCustomElements(doc, s, elements, data, settings) {
 
 /* ------------------------------ dispatcher ------------------------------ */
 function drawSubmissionPdf(doc, s) {
-  const style = s.activation?.pdfTemplate || process.env.PDF_TEMPLATE || 'modern';
-  if (style === 'classic') return drawClassicPdf(doc, s);
-  if (style === 'custom') return drawCustomPdf(doc, s);
-  return drawFlowPdf(doc, s, THEMES[style] || THEMES.modern);
+  try {
+    const style = s.activation?.pdfTemplate || process.env.PDF_TEMPLATE || 'modern';
+    if (style === 'classic') return drawClassicPdf(doc, s);
+    if (style === 'custom') return drawCustomPdf(doc, s);
+    return drawFlowPdf(doc, s, THEMES[style] || THEMES.modern);
+  } catch (e) {
+    // NEVER kill the download stream — log the real error for journalctl and
+    // still produce a valid PDF explaining what went wrong.
+    console.error(`[pdf] render failed for submission ${s?.id} (${s?.formNo || 'draft'}):`, e);
+    try {
+      doc.fontSize(13).font('Helvetica-Bold').fillColor('#dc2626')
+        .text('PDF generation error', 40, 60);
+      doc.fontSize(10).font('Helvetica').fillColor('#111827')
+        .text(`Submission: ${s?.formNo || '#' + s?.id}\nError: ${e.message}\n\nPlease report this to support — the full details are in the server log.`, 40, 84, { width: 500 });
+    } catch {}
+  }
 }
 
 /* ------------------------------- receipt ------------------------------- */
