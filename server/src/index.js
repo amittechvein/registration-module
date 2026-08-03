@@ -76,6 +76,21 @@ const PORT = process.env.PORT || 5000;
   // for local dev, delete registration.sqlite to pick up schema changes.
   const canAlter = ['postgres', 'mysql'].includes(sequelize.getDialect());
   await sequelize.sync(canAlter ? { alter: true } : {});
+  // Sequelize's alter:true re-adds UNIQUE constraints on every restart
+  // (slug_key1, slug_key2, … slug_key88 were found in production!). The
+  // bloat slows every boot & query a little more each deploy — clean it up.
+  if (sequelize.getDialect() === 'postgres') {
+    try {
+      const [dupes] = await sequelize.query(
+        `SELECT conname, conrelid::regclass::text AS tbl FROM pg_constraint WHERE conname ~ '_key[0-9]+$'`
+      );
+      for (const d of dupes) {
+        // regclass::text already quotes mixed-case table names correctly
+        await sequelize.query(`ALTER TABLE ${d.tbl} DROP CONSTRAINT IF EXISTS "${d.conname}"`);
+      }
+      if (dupes.length) console.log(`[db] dropped ${dupes.length} duplicate unique constraint(s) left behind by schema sync`);
+    } catch (e) { console.error('[db] constraint cleanup skipped:', e.message); }
+  }
   await ensureSeed();
   app.listen(PORT, () => console.log(`Registration server running on http://localhost:${PORT}`));
   // Daily summary report emailed to all Owners (time set in admin Settings)
