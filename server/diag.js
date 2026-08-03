@@ -33,11 +33,11 @@ const needle = process.argv[2] || '';
   let where;
   if (needle) where = { formNo: { [require('sequelize').Op.iLike]: `%${needle}%` } };
   const include = [
-    { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] }] },
+    { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] }] },
     { model: Applicant, as: 'applicant' },
     { model: FormStatus, as: 'status' },
-    { model: Payment, as: 'payments' },
-    { model: Attachment, as: 'attachments' },
+    { model: Payment, as: 'payments', separate: true },
+    { model: Attachment, as: 'attachments', separate: true },
   ];
 
   let t0 = Date.now();

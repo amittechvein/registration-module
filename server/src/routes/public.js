@@ -441,8 +441,8 @@ router.get('/my-submissions', async (req, res) => {
     include: [
       { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }] },
       { model: FormStatus, as: 'status' },
-      { model: Communication, as: 'communications' },
-      { model: StatusLog, as: 'statusLogs' },
+      { model: Communication, as: 'communications', separate: true },
+      { model: StatusLog, as: 'statusLogs', separate: true },
     ],
     order: [['updatedAt', 'DESC']],
   });
@@ -457,15 +457,18 @@ router.get('/my-submissions', async (req, res) => {
 
 // ---------- Applicant downloads: form PDF & payment receipt ----------
 const { drawSubmissionPdf, drawReceiptPdf } = require('../services/pdf');
+// separate:true is CRITICAL — see submissionPdfInclude in routes/admin.js:
+// a single joined query multiplies attachment BLOBs by sections×fields×payments
+// and OOM-kills the server on forms with large photos.
 const myPdfInclude = [
   { model: FormActivation, as: 'activation', include: [
     { model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' },
-    { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] },
+    { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] },
   ]},
   { model: Applicant, as: 'applicant' },
   { model: FormStatus, as: 'status' },
-  { model: Payment, as: 'payments' },
-  { model: Attachment, as: 'attachments' },
+  { model: Payment, as: 'payments', separate: true },
+  { model: Attachment, as: 'attachments', separate: true },
 ];
 
 router.get('/my-submissions/:id/pdf', async (req, res) => {

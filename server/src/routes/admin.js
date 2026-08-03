@@ -690,14 +690,14 @@ router.post('/payments/refresh', requirePerm('submissions'), async (req, res) =>
 router.get('/submissions/:id', requirePerm('submissions'), async (req, res) => {
   const s = await Submission.findByPk(req.params.id, {
     include: [
-      { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] }, { model: FormStatus, as: 'statuses' }] },
+      { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] }, { model: FormStatus, as: 'statuses', separate: true }] },
       { model: Applicant, as: 'applicant' },
       { model: FormStatus, as: 'status' },
-      { model: Payment, as: 'payments' },
-      { model: Communication, as: 'communications' },
-      { model: StatusLog, as: 'statusLogs' },
+      // separate:true — one small query per list instead of one row-multiplying join
+      { model: Payment, as: 'payments', separate: true },
+      { model: Communication, as: 'communications', separate: true, order: [['createdAt', 'ASC']] },
+      { model: StatusLog, as: 'statusLogs', separate: true },
     ],
-    order: [[{ model: Communication, as: 'communications' }, 'createdAt', 'ASC']],
   });
   if (!s) return res.status(404).json({ error: 'Not found' });
   res.json(s);
@@ -917,12 +917,17 @@ router.get('/export/excel', requirePerm('export'), async (req, res) => {
 
 const { drawSubmissionPdf } = require('../services/pdf');
 
+// CRITICAL: hasMany includes use separate:true. Without it Sequelize builds ONE
+// joined query — sections × fields × payments × attachments — and every joined
+// row repeats each attachment BLOB. A form with three 5MB photos and 40 fields
+// multiplies to GIGABYTES: the OOM-killer crashes and watchdog restarts seen in
+// production. separate:true fetches each list with its own small query instead.
 const submissionPdfInclude = [
-  { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', include: [{ model: FormField, as: 'fields' }] }] }] },
+  { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }, { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] }] },
   { model: Applicant, as: 'applicant' },
   { model: FormStatus, as: 'status' },
-  { model: Payment, as: 'payments' },
-  { model: Attachment, as: 'attachments' },
+  { model: Payment, as: 'payments', separate: true },
+  { model: Attachment, as: 'attachments', separate: true },
 ];
 
 // PDFs render in a worker thread with a hard timeout (see services/pdf-render.js)
