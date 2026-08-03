@@ -14,6 +14,35 @@ export default function Submissions() {
   const [bulkNote, setBulkNote] = useState('');
   const [recon, setRecon] = useState(null);
   const [reconResults, setReconResults] = useState(null);
+  const [rowBusy, setRowBusy] = useState(null);        // submission id being checked
+  const [chooseFor, setChooseFor] = useState(null);    // { row, attempts } when parent paid twice
+
+  // Per-row reconcile: check ONE submission's payments against Razorpay
+  const reconRow = async (r) => {
+    setRowBusy(r.id); setChooseFor(null); setReconResults(null);
+    try {
+      const { data } = await adminApi.post(`/submissions/${r.id}/reconcile`);
+      if (data.applied) {
+        setReconResults({ checked: 1, fixed: 1, results: [{ ok: true, note: `${data.formNo} · payment found CAPTURED — marked paid & submitted` }] });
+        load();
+      } else if (data.capturedCount > 1) {
+        setChooseFor({ row: r, attempts: data.attempts });
+      } else {
+        const last = data.attempts?.length ? data.attempts.map((a) => `${a.paymentId} → ${a.status}`).join(' · ') : 'no payment attempt';
+        setReconResults({ checked: 1, fixed: 0, results: [{ ok: false, note: `${r.formNo || 'DRAFT #' + r.id} → ${data.alreadyPaid ? 'already paid' : 'Razorpay says: ' + last}` }] });
+      }
+    } catch (e) { setReconResults({ error: errMsg(e) }); }
+    setRowBusy(null);
+  };
+
+  const applyChosen = async (paymentId) => {
+    try {
+      const { data } = await adminApi.post(`/submissions/${chooseFor.row.id}/apply-payment`, { paymentId });
+      setReconResults({ checked: 1, fixed: 1, results: [{ ok: true, note: `${data.formNo} · payment ${paymentId} attached — REFUND the other captured payment(s) from the Razorpay dashboard` }] });
+      setChooseFor(null);
+      load();
+    } catch (e) { setReconResults({ error: errMsg(e) }); }
+  };
   const [err, setErr] = useState('');
   const [f, setF] = useState(() => ({
     activationId: new URLSearchParams(window.location.search).get('activationId') || '',
@@ -75,6 +104,30 @@ export default function Submissions() {
         </div>
       </div>
       {err && <div className="alert err">{err}</div>}
+      {chooseFor && (
+        <div className="card" style={{ borderLeft: '4px solid #d97706' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <b>⚠ {chooseFor.row.applicant?.name || 'This parent'} paid MORE THAN ONCE for {chooseFor.row.formNo || 'DRAFT #' + chooseFor.row.id} — choose which payment to attach to the form.</b>
+            <button className="btn small ghost" onClick={() => setChooseFor(null)}>✕ Cancel</button>
+          </div>
+          <div className="muted" style={{ margin: '4px 0 10px' }}>The payment you don't choose must be refunded from the Razorpay dashboard (copy its Payment ID).</div>
+          <table className="tbl">
+            <thead><tr><th>Payment ID</th><th>Status</th><th>Method</th><th>Amount</th><th>Time</th><th></th></tr></thead>
+            <tbody>
+              {chooseFor.attempts.map((a) => (
+                <tr key={a.paymentId}>
+                  <td style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{a.paymentId}</td>
+                  <td><span className="badge" style={{ background: a.status === 'captured' ? '#16a34a' : '#64748b' }}>{a.status}</span></td>
+                  <td>{a.method || '—'}</td>
+                  <td>₹{Number(a.amount || 0).toFixed(0)}</td>
+                  <td className="muted">{a.at ? new Date(a.at).toLocaleString('en-IN') : '—'}</td>
+                  <td>{a.status === 'captured' && <button className="btn small green" onClick={() => applyChosen(a.paymentId)}>✔ Use this payment</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {reconResults && (
         <div className={`card`} style={{ borderLeft: `4px solid ${reconResults.error ? '#dc2626' : reconResults.fixed ? '#16a34a' : '#64748b'}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -246,7 +299,14 @@ export default function Submissions() {
                 <td>{r.status ? <span className="badge" style={{ background: r.status.color }}>{r.status.name}</span> : <span className="pill">{r.isDraft ? 'Draft' : '—'}</span>}</td>
                 <td>{r.paymentStatus === 'paid' ? <span className="pill on">₹{Number(r.amount).toFixed(0)} paid</span> : <span className="pill">{r.paymentStatus}</span>}</td>
                 <td className="muted">{r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-IN') : '—'}</td>
-                <td>{hasPerm('export') && <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/submissions/${r.id}/pdf`, `form-${r.formNo || r.id}.pdf`)}>PDF</button>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {hasPerm('status') && Number(r.amount) > 0 && ['pending', 'failed'].includes(r.paymentStatus) && (
+                    <button className="btn small ghost" title="Check this payment with Razorpay" disabled={rowBusy === r.id} onClick={() => reconRow(r)}>
+                      {rowBusy === r.id ? '⏳' : '🔄'}
+                    </button>
+                  )}{' '}
+                  {hasPerm('export') && <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/submissions/${r.id}/pdf`, `form-${r.formNo || r.id}.pdf`)}>PDF</button>}
+                </td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={10} className="muted">No submissions match the filters.</td></tr>}

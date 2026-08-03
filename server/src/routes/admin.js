@@ -514,42 +514,71 @@ router.get('/submissions', requirePerm('submissions'), async (req, res) => {
 // is captured at Razorpay but the form stays a pending DRAFT. This endpoint
 // asks Razorpay for the true status of every pending order and finalizes the
 // forms whose payment was actually captured.
+/** Collect every Razorpay payment attempt across ALL orders of a submission. */
+async function collectSubmissionPayments(sub) {
+  const { listOrderPayments } = require('../services/payment');
+  const orders = await Payment.findAll({ where: { submissionId: sub.id }, order: [['createdAt', 'ASC']] });
+  const seen = new Map();
+  const errors = [];
+  for (const o of orders) {
+    try {
+      for (const p of await listOrderPayments(o.orderId)) {
+        seen.set(p.paymentId, { ...p, orderId: o.orderId, payRowId: o.id });
+      }
+    } catch (e) { errors.push(`${o.orderId}: ${e.message}`); }
+  }
+  return { orders, attempts: [...seen.values()], errors };
+}
+
+/** Apply one captured payment to a submission; all other orders → superseded. */
+async function applyPaymentToSubmission(sub, attempt, orders) {
+  for (const o of orders) {
+    if (o.id === attempt.payRowId) await o.update({ status: 'paid', paymentId: attempt.paymentId });
+    else if (!['paid', 'mock_paid'].includes(o.status)) await o.update({ status: 'superseded' });
+  }
+  await sub.update({ paymentStatus: 'paid' });
+  if (sub.isDraft) {
+    const { assignFormNoAndFirstStatus } = require('../services/finalize');
+    const act = sub.activation || await FormActivation.findByPk(sub.activationId);
+    await assignFormNoAndFirstStatus(sub, act);
+  }
+}
+
+// Bulk reconcile: auto-fixes clear cases (exactly ONE captured payment);
+// submissions with MULTIPLE captured payments are reported for manual choice
+// (one of them needs a refund) — never auto-applied.
 router.post('/payments/reconcile', requirePerm('status'), async (req, res) => {
-  const { fetchOrderPayments, getGateway } = require('../services/payment');
-  const { assignFormNoAndFirstStatus } = require('../services/finalize');
+  const { getGateway } = require('../services/payment');
   const gw = await getGateway();
   if (gw.mock) return res.status(400).json({ error: 'Razorpay keys are not configured in Settings' });
 
   const pendings = await Payment.findAll({
     where: { status: { [Op.in]: ['created', 'failed'] } },
-    include: [{ model: Submission, include: [
-      { model: Applicant, as: 'applicant' },
-      { model: FormActivation, as: 'activation' },
-    ] }],
-    order: [['createdAt', 'DESC']],
-    limit: 200,
+    order: [['createdAt', 'DESC']], limit: 200,
+  });
+  const subIds = [...new Set(pendings.map((p) => p.submissionId).filter(Boolean))];
+  const subs = await Submission.findAll({
+    where: { id: subIds },
+    include: [{ model: Applicant, as: 'applicant' }, { model: FormActivation, as: 'activation' }],
   });
 
   const results = [];
   let fixed = 0;
-  for (const pay of pendings) {
-    const sub = pay.Submission;
-    if (!sub) continue;
-    if (sub.paymentStatus === 'paid') { // already settled via another order
-      await pay.update({ status: 'superseded' });
-      continue;
-    }
+  for (const sub of subs) {
     const who = `${sub.formNo || 'DRAFT #' + sub.id} · ${sub.applicant?.name || sub.applicant?.phone || ''}`;
     try {
-      const rz = await fetchOrderPayments(pay.orderId);
-      if (rz.paid) {
-        await pay.update({ status: 'paid', paymentId: rz.paymentId });
-        await sub.update({ paymentStatus: 'paid' });
-        if (sub.isDraft) await assignFormNoAndFirstStatus(sub, sub.activation);
+      if (sub.paymentStatus === 'paid') continue;
+      const { orders, attempts, errors } = await collectSubmissionPayments(sub);
+      const captured = attempts.filter((a) => a.status === 'captured');
+      if (captured.length === 1) {
+        await applyPaymentToSubmission(sub, captured[0], orders);
         fixed++;
-        results.push({ id: sub.id, ok: true, note: `${who} → payment ${rz.paymentId} (${rz.method}) found CAPTURED — marked paid${sub.formNo ? ', form no ' + sub.formNo : ''}` });
+        results.push({ id: sub.id, ok: true, note: `${who} → payment ${captured[0].paymentId} (${captured[0].method}) CAPTURED — marked paid, form no ${sub.formNo}` });
+      } else if (captured.length > 1) {
+        results.push({ id: sub.id, ok: false, multi: true, note: `${who} → ⚠ ${captured.length} CAPTURED payments (${captured.map((c) => c.paymentId).join(', ')}) — parent paid twice! Use the 🔄 button on this row to choose which payment to keep; refund the other in Razorpay.` });
       } else {
-        results.push({ id: sub.id, ok: false, note: `${who} → Razorpay says: ${rz.status}` });
+        const last = attempts.length ? attempts[attempts.length - 1].status : 'no payment attempt';
+        results.push({ id: sub.id, ok: false, note: `${who} → Razorpay says: ${last}${errors.length ? ' · ' + errors.join('; ') : ''}` });
       }
     } catch (e) {
       results.push({ id: sub.id, ok: false, note: `${who} → check failed: ${e.message}` });
@@ -557,10 +586,96 @@ router.post('/payments/reconcile', requirePerm('status'), async (req, res) => {
   }
   await audit(req, 'payment.reconcile', {
     entity: 'Payment',
-    summary: `Payment reconciliation: ${pendings.length} pending order(s) checked, ${fixed} recovered & finalized`,
+    summary: `Payment reconciliation: ${subs.length} submission(s) checked, ${fixed} recovered & finalized`,
     details: { results: results.map((r) => r.note) },
   });
-  res.json({ ok: true, checked: pendings.length, fixed, results });
+  res.json({ ok: true, checked: subs.length, fixed, results });
+});
+
+// Per-submission reconcile: returns every payment attempt; auto-applies only
+// when there is exactly one captured payment, otherwise offers choices.
+router.post('/submissions/:id/reconcile', requirePerm('status'), async (req, res) => {
+  const { getGateway } = require('../services/payment');
+  const gw = await getGateway();
+  if (gw.mock) return res.status(400).json({ error: 'Razorpay keys are not configured in Settings' });
+  const sub = await Submission.findByPk(req.params.id, {
+    include: [{ model: Applicant, as: 'applicant' }, { model: FormActivation, as: 'activation' }],
+  });
+  if (!sub) return res.status(404).json({ error: 'Not found' });
+  const { orders, attempts, errors } = await collectSubmissionPayments(sub);
+  const captured = attempts.filter((a) => a.status === 'captured');
+  if (sub.paymentStatus !== 'paid' && captured.length === 1) {
+    await applyPaymentToSubmission(sub, captured[0], orders);
+    await audit(req, 'payment.reconcile', { entity: 'Submission', entityId: sub.id, summary: `Reconciled #${sub.id}: payment ${captured[0].paymentId} applied, form no ${sub.formNo}` });
+    return res.json({ applied: true, formNo: sub.formNo, attempts, errors });
+  }
+  res.json({ applied: false, alreadyPaid: sub.paymentStatus === 'paid', capturedCount: captured.length, attempts, errors });
+});
+
+// Admin chose WHICH captured payment to attach (the other gets refunded manually)
+router.post('/submissions/:id/apply-payment', requirePerm('status'), async (req, res) => {
+  const paymentId = String(req.body.paymentId || '');
+  if (!paymentId) return res.status(400).json({ error: 'paymentId required' });
+  const sub = await Submission.findByPk(req.params.id, {
+    include: [{ model: Applicant, as: 'applicant' }, { model: FormActivation, as: 'activation' }],
+  });
+  if (!sub) return res.status(404).json({ error: 'Not found' });
+  const { orders, attempts } = await collectSubmissionPayments(sub);
+  const chosen = attempts.find((a) => a.paymentId === paymentId);
+  if (!chosen) return res.status(400).json({ error: 'That payment id does not belong to this submission' });
+  if (chosen.status !== 'captured') return res.status(400).json({ error: `Payment ${paymentId} is not captured (status: ${chosen.status})` });
+  await applyPaymentToSubmission(sub, chosen, orders);
+  await audit(req, 'payment.apply', {
+    entity: 'Submission', entityId: sub.id,
+    summary: `Admin selected payment ${paymentId} (${chosen.method}, ₹${chosen.amount}) for ${sub.formNo || '#' + sub.id}; other captured payments to be refunded in Razorpay`,
+  });
+  res.json({ ok: true, formNo: sub.formNo });
+});
+
+// ---------- Payments tab: every order/payment with owner, for refund work ----------
+router.get('/payments', requirePerm('submissions'), async (_req, res) => {
+  const rows = await Payment.findAll({
+    include: [{ model: Submission, include: [
+      { model: Applicant, as: 'applicant' },
+      { model: FormActivation, as: 'activation' },
+    ] }],
+    order: [['createdAt', 'DESC']], limit: 500,
+  });
+  res.json(rows.map((p) => ({
+    id: p.id, orderId: p.orderId, paymentId: p.paymentId, amount: Number(p.amount || 0),
+    status: p.status, createdAt: p.createdAt,
+    submissionId: p.Submission?.id || null,
+    formNo: p.Submission?.formNo || (p.Submission ? 'DRAFT #' + p.Submission.id : '—'),
+    form: p.Submission?.activation?.title || '',
+    applicant: p.Submission?.applicant?.name || '',
+    phone: p.Submission?.applicant?.phone || '',
+  })));
+});
+
+// Live Razorpay status for payment rows (captured / authorized / refunded / partial)
+router.post('/payments/refresh', requirePerm('submissions'), async (req, res) => {
+  const { fetchPaymentInfo, listOrderPayments, getGateway } = require('../services/payment');
+  const gw = await getGateway();
+  if (gw.mock) return res.status(400).json({ error: 'Razorpay keys are not configured in Settings' });
+  const ids = (req.body.ids || []).map(Number).filter(Boolean).slice(0, 100);
+  const rows = await Payment.findAll({ where: { id: ids } });
+  const live = {};
+  for (const p of rows) {
+    try {
+      let info = null;
+      if (p.paymentId && p.paymentId.startsWith('pay_') && p.paymentId !== 'pay_mock') {
+        info = await fetchPaymentInfo(p.paymentId);
+      } else {
+        const items = await listOrderPayments(p.orderId);
+        info = items.find((x) => x.status === 'captured') || items[items.length - 1] || { status: 'no payment attempt' };
+      }
+      // keep our stored status in sync with refund state
+      if (info.refundStatus === 'full') await p.update({ status: 'refunded' });
+      else if (info.refundStatus === 'partial') await p.update({ status: 'partial_refund' });
+      live[p.id] = info;
+    } catch (e) { live[p.id] = { error: e.message }; }
+  }
+  res.json({ live });
 });
 
 router.get('/submissions/:id', requirePerm('submissions'), async (req, res) => {

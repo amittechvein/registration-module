@@ -56,6 +56,36 @@ async function fetchOrderPayments(orderId) {
   };
 }
 
+/** All payment attempts on an order (id, status, method, amount, refunds). */
+async function listOrderPayments(orderId) {
+  const gw = await getGateway();
+  if (gw.mock) throw new Error('Razorpay keys are not configured');
+  const Razorpay = require('razorpay');
+  const razorpay = new Razorpay({ key_id: gw.keyId, key_secret: gw.keySecret });
+  const r = await razorpay.orders.fetchPayments(orderId);
+  return (r?.items || []).map((p) => ({
+    paymentId: p.id, status: p.status, method: p.method,
+    amount: p.amount / 100, refundStatus: p.refund_status || null,
+    amountRefunded: (p.amount_refunded || 0) / 100,
+    contact: p.contact || '', at: p.created_at ? new Date(p.created_at * 1000).toISOString() : null,
+  }));
+}
+
+/** Live details of a single Razorpay payment id (incl. refund state). */
+async function fetchPaymentInfo(paymentId) {
+  const gw = await getGateway();
+  if (gw.mock) throw new Error('Razorpay keys are not configured');
+  const Razorpay = require('razorpay');
+  const razorpay = new Razorpay({ key_id: gw.keyId, key_secret: gw.keySecret });
+  const p = await razorpay.payments.fetch(paymentId);
+  return {
+    paymentId: p.id, status: p.status, method: p.method,
+    amount: p.amount / 100, refundStatus: p.refund_status || null,
+    amountRefunded: (p.amount_refunded || 0) / 100,
+    contact: p.contact || '', at: p.created_at ? new Date(p.created_at * 1000).toISOString() : null,
+  };
+}
+
 async function verifySignature({ orderId, paymentId, signature }) {
   const gw = await getGateway();
   if (gw.mock) return true; // mock mode: accept
@@ -63,4 +93,4 @@ async function verifySignature({ orderId, paymentId, signature }) {
   return expected === signature;
 }
 
-module.exports = { createOrder, verifySignature, getGateway, fetchOrderPayments };
+module.exports = { createOrder, verifySignature, getGateway, fetchOrderPayments, listOrderPayments, fetchPaymentInfo };

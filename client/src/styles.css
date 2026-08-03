@@ -370,3 +370,9 @@ code.url { background: var(--bg); padding: 3px 8px; border-radius: 6px; font-siz
 .tb-auto-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
 .tb-auto-row select, .tb-auto-row input { padding: 4px 8px; font-size: 12.5px; }
 .tb-auto-row select { max-width: 320px; }
+
+/* --- WhatsApp support button --- */
+.wa-btn { display: inline-flex; align-items: center; gap: 7px; background: #25d366; color: #fff !important; font-weight: 700;
+  padding: 8px 16px; border-radius: 999px; font-size: 13px; text-decoration: none; transition: background .15s; white-space: nowrap; }
+.wa-btn:hover { background: #1da851; }
+.wa-btn.wa-small { padding: 5px 12px; font-size: 12px; }

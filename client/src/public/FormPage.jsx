@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { publicApi, errMsg } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
 import PubShell from '../components/PubShell.jsx';
+import WhatsAppSupport from '../components/WhatsAppSupport.jsx';
 
 const isImageName = (n) => /\.(jpe?g|png|webp)$/i.test(n || '');
 // Photo & signature fields accept images only (no PDF)
@@ -311,7 +312,14 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoM
           <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>{errs.map((x, i) => <li key={i}>{x}</li>)}</ul>
         </div>
       )}
-      {err && <div className="alert err">{err}</div>}
+      {err && (
+        <div className="alert err" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>{err}</span>
+          {/^payment|payment/i.test(err) && (
+            <WhatsAppSupport small text={`Hello, I am facing a payment problem on the admission form "${form.title}". My registered mobile is ${sessionStorage.getItem('applicantPhone') || ''}. Please help.`} />
+          )}
+        </div>
+      )}
 
       <div className="card wizard-nav">
         <button className="btn ghost" onClick={back} disabled={step === 0}>← Back</button>

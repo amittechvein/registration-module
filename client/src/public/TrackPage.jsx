@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { publicApi, errMsg, downloadBlob } from '../lib/api.js';
 import OtpLogin from '../components/OtpLogin.jsx';
 import PubShell from '../components/PubShell.jsx';
+import WhatsAppSupport from '../components/WhatsAppSupport.jsx';
 
 export default function TrackPage() {
   const [loggedIn, setLoggedIn] = useState(!!sessionStorage.getItem('applicantToken'));
@@ -55,6 +56,21 @@ export default function TrackPage() {
                     : s.status && <span className="badge" style={{ background: s.status.color, fontSize: 14 }}>{s.status.name}</span>}
                 </div>
               </div>
+
+              {/* Payment stuck? Direct WhatsApp line to support */}
+              {Number(s.amount) > 0 && ['pending', 'failed'].includes(s.paymentStatus) && (
+                <div className="alert err" style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span>
+                    <b>Payment {s.paymentStatus === 'failed' ? 'failed' : 'not confirmed yet'}.</b>{' '}
+                    If money was deducted from your account, don't pay again — contact support and we will verify it.
+                  </span>
+                  <WhatsAppSupport
+                    small
+                    label="💬 WhatsApp Support"
+                    text={`Hello, my admission form payment is stuck.\nForm: ${s.form || ''}\nForm No: ${s.formNo || 'DRAFT (application #' + s.id + ')'}\nRegistered mobile: ${sessionStorage.getItem('applicantPhone') || ''}\nPlease check my payment.`}
+                  />
+                </div>
+              )}
 
               {!s.isDraft && (
                 <>

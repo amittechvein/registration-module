@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { publicApi } from '../lib/api.js';
+import WhatsAppSupport from './WhatsAppSupport.jsx';
 
 /** Shared chrome for all parent-facing pages: sticky navbar + footer. */
 export default function PubShell({ children }) {
@@ -31,7 +32,10 @@ export default function PubShell({ children }) {
           <b>{school.name}</b>
           <div>{school.address}</div>
         </div>
-        <div className="muted">Payments secured by Razorpay · Need help? Use "Track Application" to message the school.</div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <span className="muted">Payments secured by Razorpay · Payment problem or need help?</span>
+          <WhatsAppSupport small />
+        </div>
       </footer>
     </div>
   );
