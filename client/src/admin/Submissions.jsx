@@ -12,6 +12,8 @@ export default function Submissions() {
   const [bulkMsg, setBulkMsg] = useState('');
   const [bulkCh, setBulkCh] = useState({ sms: false, email: false });
   const [bulkNote, setBulkNote] = useState('');
+  const [recon, setRecon] = useState(null);
+  const [reconResults, setReconResults] = useState(null);
   const [err, setErr] = useState('');
   const [f, setF] = useState(() => ({
     activationId: new URLSearchParams(window.location.search).get('activationId') || '',
@@ -45,14 +47,52 @@ export default function Submissions() {
           <h1>Submitted Forms</h1>
           <div className="muted">{rows.length} result(s)</div>
         </div>
-        {hasPerm('export') && (
-          <div>
-            <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/excel?${qs}`, 'submissions.xlsx')}>⬇ Excel</button>{' '}
-            <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/pdf?${qs}`, 'all-submissions.pdf')}>⬇ PDF (all)</button>
-          </div>
-        )}
+        <div>
+          {hasPerm('status') && (
+            <button
+              className="btn ghost"
+              disabled={recon === 'running'}
+              title="Ask Razorpay for the real status of every pending payment — forms whose money was actually received are marked paid and submitted automatically"
+              onClick={async () => {
+                setRecon('running'); setReconResults(null);
+                try {
+                  const { data } = await adminApi.post('/payments/reconcile');
+                  setReconResults(data);
+                  setRecon(null);
+                  load();
+                } catch (e) { setRecon(null); setReconResults({ error: errMsg(e) }); }
+              }}
+            >
+              {recon === 'running' ? '⏳ Checking Razorpay…' : '🔄 Reconcile Payments'}
+            </button>
+          )}{' '}
+          {hasPerm('export') && (
+            <>
+              <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/excel?${qs}`, 'submissions.xlsx')}>⬇ Excel</button>{' '}
+              <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/pdf?${qs}`, 'all-submissions.pdf')}>⬇ PDF (all)</button>
+            </>
+          )}
+        </div>
       </div>
       {err && <div className="alert err">{err}</div>}
+      {reconResults && (
+        <div className={`card`} style={{ borderLeft: `4px solid ${reconResults.error ? '#dc2626' : reconResults.fixed ? '#16a34a' : '#64748b'}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <b>
+              {reconResults.error
+                ? `Reconciliation failed: ${reconResults.error}`
+                : `Payment reconciliation — ${reconResults.checked} pending order(s) checked, ${reconResults.fixed} payment(s) recovered`}
+            </b>
+            <button className="btn small ghost" onClick={() => setReconResults(null)}>✕ Close</button>
+          </div>
+          {(reconResults.results || []).map((x, i) => (
+            <div key={i} className="muted" style={{ marginTop: 4, color: x.ok ? '#16a34a' : undefined }}>
+              {x.ok ? '✅' : '·'} {x.note}
+            </div>
+          ))}
+          {!reconResults.error && !(reconResults.results || []).length && <div className="muted" style={{ marginTop: 6 }}>No pending payment orders found — everything is already in sync.</div>}
+        </div>
+      )}
 
       <div className="card">
         <div className="toolbar">
@@ -181,7 +221,7 @@ export default function Submissions() {
           <thead>
             <tr>
               <th><input type="checkbox" checked={sel.length === rows.length && rows.length > 0} onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.id) : [])} /></th>
-              <th>Form No</th><th>Applicant</th><th>Form</th><th>Class</th>
+              <th>Form No</th><th>Student</th><th>Applicant</th><th>Form</th><th>Class</th>
               <th style={{ cursor: 'pointer' }} onClick={() => setSortByScore(!sortByScore)} title="Auto-computed admission priority — click to sort">
                 Score {sortByScore ? '▼' : '⇅'}
               </th>
@@ -193,6 +233,7 @@ export default function Submissions() {
               <tr key={r.id}>
                 <td><input type="checkbox" checked={sel.includes(r.id)} onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td>
                 <td><Link to={`/admin/submissions/${r.id}`}><b>{r.formNo || (r.isDraft ? 'DRAFT' : '—')}</b></Link></td>
+                <td><b>{r.studentName || '—'}</b></td>
                 <td>{r.applicant?.name || '—'}<div className="muted">{r.applicant?.phone}</div></td>
                 <td>{r.activation?.title}</td>
                 <td>{r.activation?.classRoom?.name}</td>

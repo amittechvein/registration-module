@@ -236,7 +236,7 @@ function Wizard({ form, data, setField, errs, err, busy, submit, hadDraft, autoM
         </div>
       )}
       {step === 0 && form.dob && (
-        <div className="alert ok">Eligibility: date of birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
+        <div className="alert ok">Eligibility: Date of Birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
       )}
       {hadDraft && step === 0 && <div className="alert ok">Your saved draft was loaded — continue where you left off. The form auto-saves at every step.</div>}
 
@@ -494,7 +494,7 @@ export default function FormPage() {
         </div>
       )}
       {!loggedIn && form.dob && (
-        <div className="alert ok">Eligibility: date of birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
+        <div className="alert ok">Eligibility: Date of Birth must be between <b>{form.dob.min ? fmtDate(form.dob.min) : 'any'}</b> and <b>{form.dob.max ? fmtDate(form.dob.max) : 'any'}</b>.</div>
       )}
 
       {!loggedIn && <OtpLogin onLoggedIn={() => setLoggedIn(true)} />}

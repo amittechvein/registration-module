@@ -34,6 +34,28 @@ async function createOrder(amountRupees, receipt, notes = {}) {
   return { mock: false, id: order.id, amount: order.amount, currency: order.currency, keyId: gw.keyId };
 }
 
+/**
+ * Reconciliation: ask Razorpay what actually happened to an order.
+ * Returns { paid, paymentId, method, status } — paid=true when a captured
+ * payment exists even though our verify callback never arrived.
+ */
+async function fetchOrderPayments(orderId) {
+  const gw = await getGateway();
+  if (gw.mock) throw new Error('Razorpay keys are not configured');
+  const Razorpay = require('razorpay');
+  const razorpay = new Razorpay({ key_id: gw.keyId, key_secret: gw.keySecret });
+  const r = await razorpay.orders.fetchPayments(orderId);
+  const items = r?.items || [];
+  const captured = items.find((p) => p.status === 'captured');
+  const authorized = items.find((p) => p.status === 'authorized');
+  return {
+    paid: !!captured,
+    paymentId: captured?.id || null,
+    method: captured?.method || null,
+    status: captured ? 'captured' : authorized ? 'authorized (not captured yet)' : items.length ? items[items.length - 1].status : 'no payment attempt',
+  };
+}
+
 async function verifySignature({ orderId, paymentId, signature }) {
   const gw = await getGateway();
   if (gw.mock) return true; // mock mode: accept
@@ -41,4 +63,4 @@ async function verifySignature({ orderId, paymentId, signature }) {
   return expected === signature;
 }
 
-module.exports = { createOrder, verifySignature, getGateway };
+module.exports = { createOrder, verifySignature, getGateway, fetchOrderPayments };

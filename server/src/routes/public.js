@@ -339,37 +339,7 @@ router.get('/forms/:slug/draft', async (req, res) => {
 });
 
 // ---------- Submit (with payment when enabled) ----------
-async function assignFormNoAndFirstStatus(sub, a) {
-  const firstStatus = await FormStatus.findOne({ where: { activationId: a.id, isFirst: true } });
-  const tx = await sequelize.transaction();
-  try {
-    const act = await FormActivation.findByPk(a.id, { transaction: tx, lock: tx.LOCK ? tx.LOCK.UPDATE : undefined });
-    // Skip numbers that are already used — so after deleting test entries the
-    // counter can be reset to 1 and numbering fills gaps, then jumps over
-    // existing numbers automatically (e.g. 0001..0007, existing 0008..0011, 0012…)
-    let num = act.formNoNext;
-    let formNo;
-    for (let guard = 0; guard < 10000; guard++) {
-      formNo = `${act.formNoPrefix || ''}${String(num).padStart(act.formNoPad || 4, '0')}${act.formNoSuffix || ''}`;
-      const clash = await Submission.findOne({ where: { activationId: act.id, formNo }, attributes: ['id'], transaction: tx });
-      if (!clash) break;
-      num++;
-    }
-    await act.update({ formNoNext: num + 1 }, { transaction: tx });
-    await sub.update({ formNo, isDraft: false, submittedAt: new Date(), statusId: firstStatus?.id || null }, { transaction: tx });
-    await tx.commit();
-  } catch (e) {
-    await tx.rollback();
-    throw e;
-  }
-  await StatusLog.create({ submissionId: sub.id, fromStatus: null, toStatus: firstStatus?.name || 'Submitted', changedBy: 'system' });
-  if (firstStatus) {
-    const applicant = await Applicant.findByPk(sub.applicantId);
-    const full = await FormActivation.findByPk(a.id, { include: [{ model: ClassRoom, as: 'classRoom' }] });
-    await notifyStatusChange({ submission: sub, applicant, status: firstStatus, activation: full, className: full.classRoom?.name });
-  }
-  return sub;
-}
+const { assignFormNoAndFirstStatus } = require('../services/finalize');
 
 router.post('/forms/:slug/submit', async (req, res) => {
   const a = await FormActivation.findOne({ where: { slug: req.params.slug } });

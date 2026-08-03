@@ -485,7 +485,83 @@ async function findSubmissions(q) {
   return rows;
 }
 
-router.get('/submissions', requirePerm('submissions'), async (req, res) => res.json(await findSubmissions(req.query)));
+router.get('/submissions', requirePerm('submissions'), async (req, res) => {
+  const rows = await findSubmissions(req.query);
+  // attach the student's name (from fields linked to First/Last Name)
+  const tplIds = [...new Set(rows.map((r) => r.activation?.templateId).filter(Boolean))];
+  const secs = tplIds.length
+    ? await FormSection.findAll({ where: { templateId: tplIds }, include: [{ model: FormField, as: 'fields' }] })
+    : [];
+  const nameMap = {};
+  for (const s of secs) {
+    const m = (nameMap[s.templateId] = nameMap[s.templateId] || {});
+    for (const f of s.fields) {
+      if (f.studentField === 'firstName') m.fn = f.id;
+      if (f.studentField === 'lastName') m.ln = f.id;
+    }
+  }
+  res.json(rows.map((r) => {
+    const j = r.toJSON();
+    const m = nameMap[r.activation?.templateId] || {};
+    let d = {}; try { d = JSON.parse(r.data || '{}'); } catch {}
+    j.studentName = [d[m.fn], d[m.ln]].filter((x) => x && typeof x !== 'object').join(' ');
+    return j;
+  }));
+});
+
+// ---------- Payment reconciliation ----------
+// A parent sometimes pays but their browser never returns to confirm — money
+// is captured at Razorpay but the form stays a pending DRAFT. This endpoint
+// asks Razorpay for the true status of every pending order and finalizes the
+// forms whose payment was actually captured.
+router.post('/payments/reconcile', requirePerm('status'), async (req, res) => {
+  const { fetchOrderPayments, getGateway } = require('../services/payment');
+  const { assignFormNoAndFirstStatus } = require('../services/finalize');
+  const gw = await getGateway();
+  if (gw.mock) return res.status(400).json({ error: 'Razorpay keys are not configured in Settings' });
+
+  const pendings = await Payment.findAll({
+    where: { status: { [Op.in]: ['created', 'failed'] } },
+    include: [{ model: Submission, include: [
+      { model: Applicant, as: 'applicant' },
+      { model: FormActivation, as: 'activation' },
+    ] }],
+    order: [['createdAt', 'DESC']],
+    limit: 200,
+  });
+
+  const results = [];
+  let fixed = 0;
+  for (const pay of pendings) {
+    const sub = pay.Submission;
+    if (!sub) continue;
+    if (sub.paymentStatus === 'paid') { // already settled via another order
+      await pay.update({ status: 'superseded' });
+      continue;
+    }
+    const who = `${sub.formNo || 'DRAFT #' + sub.id} · ${sub.applicant?.name || sub.applicant?.phone || ''}`;
+    try {
+      const rz = await fetchOrderPayments(pay.orderId);
+      if (rz.paid) {
+        await pay.update({ status: 'paid', paymentId: rz.paymentId });
+        await sub.update({ paymentStatus: 'paid' });
+        if (sub.isDraft) await assignFormNoAndFirstStatus(sub, sub.activation);
+        fixed++;
+        results.push({ id: sub.id, ok: true, note: `${who} → payment ${rz.paymentId} (${rz.method}) found CAPTURED — marked paid${sub.formNo ? ', form no ' + sub.formNo : ''}` });
+      } else {
+        results.push({ id: sub.id, ok: false, note: `${who} → Razorpay says: ${rz.status}` });
+      }
+    } catch (e) {
+      results.push({ id: sub.id, ok: false, note: `${who} → check failed: ${e.message}` });
+    }
+  }
+  await audit(req, 'payment.reconcile', {
+    entity: 'Payment',
+    summary: `Payment reconciliation: ${pendings.length} pending order(s) checked, ${fixed} recovered & finalized`,
+    details: { results: results.map((r) => r.note) },
+  });
+  res.json({ ok: true, checked: pendings.length, fixed, results });
+});
 
 router.get('/submissions/:id', requirePerm('submissions'), async (req, res) => {
   const s = await Submission.findByPk(req.params.id, {
