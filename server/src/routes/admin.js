@@ -1007,6 +1007,18 @@ router.post('/settings/test-email', requirePerm('settings'), async (req, res) =>
   res.json({ ok, provider, note: ok ? `Sent via ${provider}` : `Failed via ${provider} — check credentials / server logs` });
 });
 
+// Send the daily Owners report immediately (for testing / on demand)
+router.post('/reports/send-now', requirePerm('settings'), async (req, res) => {
+  try {
+    const { sendDailyReport } = require('../services/reports');
+    const out = await sendDailyReport();
+    await audit(req, 'report.send', { entity: 'Setting', summary: `Daily report sent manually to: ${out.sent.join(', ') || 'nobody'}` });
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/settings/status', requirePerm('settings'), async (_req, res) => {
   const { getGateway } = require('../services/payment');
   const gw = await getGateway();

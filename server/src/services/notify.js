@@ -6,7 +6,10 @@ function renderTemplate(tpl, vars) {
   return (tpl || '').replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
 }
 
-async function sendEmail(to, subject, body) {
+/**
+ * Send an email. `attachments` (optional): [{ filename, content: Buffer }].
+ */
+async function sendEmail(to, subject, body, attachments = []) {
   if (!to) return false;
   const cfg = await getConfig();
 
@@ -16,11 +19,15 @@ async function sendEmail(to, subject, body) {
       const from = cfg.SMTP_FROM || 'Admissions <admissions@example.com>';
       const m = from.match(/^(.*)<(.+)>$/);
       const sender = m ? { name: m[1].trim().replace(/^"|"$/g, ''), email: m[2].trim() } : { email: from.trim() };
+      const payload = { sender, to: [{ email: to }], subject, textContent: body };
+      if (attachments.length) {
+        payload.attachment = attachments.map((a) => ({ name: a.filename, content: a.content.toString('base64') }));
+      }
       const res = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': cfg.BREVO_API_KEY },
-        body: JSON.stringify({ sender, to: [{ email: to }], subject, textContent: body }),
-        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) console.error('[email:brevo] response:', (await res.text()).slice(0, 300));
       return res.ok;
@@ -40,14 +47,17 @@ async function sendEmail(to, subject, body) {
         // fail fast instead of hanging into a gateway timeout when ports are blocked
         connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 12000,
       });
-      await transporter.sendMail({ from: cfg.SMTP_FROM || 'admissions@example.com', to, subject, text: body });
+      await transporter.sendMail({
+        from: cfg.SMTP_FROM || 'admissions@example.com', to, subject, text: body,
+        attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })),
+      });
       return true;
     } catch (e) {
       console.error('[email] send failed:', e.message);
       return false;
     }
   }
-  console.log(`[email:console] to=${to} subject="${subject}" body="${body}"`);
+  console.log(`[email:console] to=${to} subject="${subject}" attachments=${attachments.length} body="${String(body).slice(0, 200)}…"`);
   return true;
 }
 

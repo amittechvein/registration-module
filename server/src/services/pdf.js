@@ -415,6 +415,9 @@ function drawClassicPdf(doc, s) {
  *  Canvas coordinates are 1:1 PDF points on an A4 page (595 × 842). */
 /** Render one field cell in the chosen label style: above | inline | hidden */
 function fieldCell(doc, { x, y, w, h, fs, bold, color, align, labelStyle, underline }, label, display) {
+  // SAFETY: pdfkit's line-wrapper INFINITE-LOOPS on zero/negative width —
+  // a narrow designer element must never freeze the whole server.
+  w = Math.max(14, w);
   const vFont = bold ? 'Helvetica-Bold' : 'Helvetica';
   if (labelStyle === 'inline') {
     doc.fontSize(fs).font('Helvetica').fillColor('#6b7280')
@@ -536,18 +539,21 @@ function renderCustomElements(doc, s, elements, data, settings) {
           : v && typeof v === 'object' ? `Attached: ${v.filename || 'file'}`
           : v != null && v !== '' ? String(v) : '—';
         if (el.boxed) {
-          // CLASSIC style: bordered grey label cell + bordered value cell
+          // CLASSIC style: bordered grey label cell + bordered value cell.
+          // ALL widths are clamped positive — negative width makes pdfkit's
+          // wrapper loop forever and freezes the whole server (504s).
           const fx = x + col * cellW;
-          const lblW = Math.max(58, Math.min(115, cellW * 0.42));
+          const lblW = Math.min(Math.max(30, cellW * 0.42), Math.max(30, cellW - 40));
+          const lblTextW = Math.max(8, lblW - 8);
+          const availW = Math.max(12, cellW - lblW - 8);
           doc.rect(fx, fy, lblW, rowH).fillColor('#f3f4f6').fill();
           doc.rect(fx, fy, lblW, rowH).lineWidth(0.5).strokeColor('#c8cdd6').stroke();
-          doc.rect(fx + lblW, fy, cellW - lblW, rowH).lineWidth(0.5).strokeColor('#c8cdd6').stroke();
+          doc.rect(fx + lblW, fy, Math.max(4, cellW - lblW), rowH).lineWidth(0.5).strokeColor('#c8cdd6').stroke();
           const lfs = Math.max(5, fs * 0.88);
           doc.fontSize(lfs).font('Helvetica').fillColor('#374151')
-            .text(f.label, fx + 4, fy + Math.max(1.5, (rowH - lfs) / 2 - 1), { width: lblW - 8, height: rowH - 3, ellipsis: true, lineBreak: rowH > 22 });
+            .text(f.label, fx + 4, fy + Math.max(1.5, (rowH - lfs) / 2 - 1), { width: lblTextW, height: rowH - 3, ellipsis: true, lineBreak: rowH > 22 });
           // Value WRAPS across lines within the cell (long addresses etc.),
           // vertically centered; only truncates if it truly can't fit.
-          const availW = cellW - lblW - 8;
           doc.fontSize(fs).font('Helvetica-Bold');
           const vH = Math.min(doc.heightOfString(display, { width: availW }), rowH - 3);
           doc.fillColor('#111827')
@@ -611,13 +617,14 @@ function renderCustomElements(doc, s, elements, data, settings) {
         { label: 'Application Date', value: meta.date },
       ];
       doc.rect(x, y, w, h).fillColor(el.bg || '#f4f1ea').fill();
-      const cw = w / cells.length;
+      const cw = Math.max(24, w / cells.length); // clamp: never zero/negative width
+      const cellTextW = Math.max(10, cw - 12);
       const lfs = Math.max(4.5, fs * 0.78);
       cells.forEach((c, i) => {
         doc.fontSize(lfs).font('Helvetica').fillColor(MUTED)
-          .text(c.label.toUpperCase(), x + 8 + i * cw, y + Math.max(3, h * 0.18), { width: cw - 12, lineBreak: false, characterSpacing: 0.4 });
+          .text(c.label.toUpperCase(), x + 8 + i * cw, y + Math.max(3, h * 0.18), { width: cellTextW, lineBreak: false, characterSpacing: 0.4 });
         doc.fontSize(fs).font('Helvetica-Bold').fillColor(el.color && el.color !== '#111827' ? el.color : '#1c1917')
-          .text(String(c.value || '—'), x + 8 + i * cw, y + Math.max(3, h * 0.18) + lfs + 4, { width: cw - 12, lineBreak: false });
+          .text(String(c.value || '—'), x + 8 + i * cw, y + Math.max(3, h * 0.18) + lfs + 4, { width: cellTextW, lineBreak: false });
       });
     } else if (el.kind === 'signature') {
       if (sigBuf) { try { doc.image(sigBuf, x + 2, y + 2, { fit: [w - 4, h - 12] }); } catch {} }

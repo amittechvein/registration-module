@@ -78,4 +78,6 @@ const PORT = process.env.PORT || 5000;
   await sequelize.sync(canAlter ? { alter: true } : {});
   await ensureSeed();
   app.listen(PORT, () => console.log(`Registration server running on http://localhost:${PORT}`));
+  // Daily summary report emailed to all Owners (time set in admin Settings)
+  try { require('./services/reports').startReportScheduler(); } catch (e) { console.error('[report] scheduler failed to start:', e.message); }
 })();

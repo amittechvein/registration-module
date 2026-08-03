@@ -23,6 +23,9 @@ const SETTING_DEFS = [
   { key: 'GOOGLE_CLIENT_SECRET', group: 'auth', label: 'Google OAuth Client Secret', secret: true },
   // Email (Brevo API — recommended, works even when SMTP ports are blocked)
   { key: 'BREVO_API_KEY', group: 'email', label: 'Brevo API Key (recommended)', secret: true },
+  // Daily report to Owners
+  { key: 'REPORT_ENABLED', group: 'reports', label: 'Send daily report', secret: false },
+  { key: 'REPORT_TIME', group: 'reports', label: 'Send time (IST, 24h e.g. 08:00)', secret: false },
   // Email (SMTP)
   { key: 'SMTP_HOST', group: 'email', label: 'SMTP Host', secret: false },
   { key: 'SMTP_PORT', group: 'email', label: 'SMTP Port', secret: false },

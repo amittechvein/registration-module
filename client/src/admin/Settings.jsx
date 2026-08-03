@@ -15,6 +15,10 @@ const GROUPS = [
     hint: 'RECOMMENDED: create a free account at brevo.com (300 emails/day) → Settings → SMTP & API → API Keys → paste the key below — this works even when the server\'s SMTP ports are blocked. The From Address must be a verified sender in Brevo. SMTP fields are the fallback if you prefer your own mail server.',
   },
   {
+    id: 'reports', title: 'Daily Report to Owners',
+    hint: 'Every day at the chosen time (IST), all active users with Role: Owner receive an email with a summary of every active form (submissions, last-24h count, fees collected, status breakdown) and the complete submissions Excel attached. Requires Email to be configured above.',
+  },
+  {
     id: 'auth', title: 'Login Options (Google Sign-In)',
     hint: 'In console.cloud.google.com → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application): (1) under "Authorized redirect URIs" add https://form.techvein.org/api/public/auth/google/callback, (2) copy the Client ID AND the Client Secret and paste both below. With both saved, sign-in uses the reliable full-page redirect (no popups). Admin Google login only works for emails that exist in Users.',
   },
@@ -65,6 +69,11 @@ export default function Settings() {
   const test = async (kind) => {
     setTestResult((t) => ({ ...t, [kind]: '…testing' }));
     try {
+      if (kind === 'report') {
+        const { data } = await adminApi.post('/reports/send-now');
+        setTestResult((t) => ({ ...t, report: data.sent?.length ? `✅ Sent to: ${data.sent.join(', ')}` : `❌ ${data.skipped || 'No owner received it — check Email settings & owner email addresses'}` }));
+        return;
+      }
       const { data } = kind === 'sms'
         ? await adminApi.post('/settings/test-sms', { phone: testPhone })
         : await adminApi.post('/settings/test-email', { to: testEmail });
@@ -110,7 +119,12 @@ export default function Settings() {
             {items.filter((i) => i.group === g.id).map((i) => (
               <label className="fld" key={i.key}>
                 {i.label} {i.secret && i.isSet && <span className="pill on">set</span>}
-                {i.key === 'DEV_SHOW_OTP' ? (
+                {i.key === 'REPORT_ENABLED' ? (
+                  <select value={values[i.key] || 'true'} onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}>
+                    <option value="true">ON — send every day</option>
+                    <option value="false">OFF — do not send</option>
+                  </select>
+                ) : i.key === 'DEV_SHOW_OTP' ? (
                   <select value={values[i.key] || 'true'} onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}>
                     <option value="true">ON — show OTP on screen (testing)</option>
                     <option value="false">OFF — send by SMS only (production)</option>
@@ -133,6 +147,12 @@ export default function Settings() {
               </label>
               <button className="btn ghost" onClick={() => test('sms')} disabled={testPhone.length !== 10}>Send Test SMS</button>
               {testResult.sms && <span className="muted">{testResult.sms}</span>}
+            </div>
+          )}
+          {g.id === 'reports' && (
+            <div className="toolbar" style={{ marginTop: 8 }}>
+              <button className="btn ghost" onClick={() => test('report')}>📧 Send Report Now (test)</button>
+              {testResult.report && <span className="muted">{testResult.report}</span>}
             </div>
           )}
           {g.id === 'email' && (
