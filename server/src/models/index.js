@@ -138,6 +138,18 @@ const Attachment = sequelize.define('Attachment', {
   sizeBytes: { type: DataTypes.INTEGER, allowNull: false },
   sha256: DataTypes.STRING,
   data: { type: DataTypes.BLOB('long'), allowNull: false },
+  // Which form field this file answers. Set when an admin replaces a file so
+  // the previous versions of THAT field can be listed; older rows may be null.
+  fieldId: { type: DataTypes.INTEGER, allowNull: true },
+  // When an admin replaces a document we NEVER delete the original — we mark it
+  // superseded and keep it. An admissions record must be able to show what was
+  // actually submitted if a parent later disputes a decision.
+  isSuperseded: { type: DataTypes.BOOLEAN, defaultValue: false },
+  replacedAt: { type: DataTypes.DATE, allowNull: true },
+  replacedBy: { type: DataTypes.STRING, allowNull: true }, // admin name/email
+  replacedReason: { type: DataTypes.STRING, allowNull: true },
+  // Set on the NEW file, pointing at the one it replaced (version chain).
+  supersedesId: { type: DataTypes.INTEGER, allowNull: true },
 });
 
 const Submission = sequelize.define('Submission', {

@@ -39,6 +39,18 @@ export function storeAdminSession(data) {
 export const errMsg = (e) =>
   e.response?.data?.error || (e.response?.data?.errors || []).join('; ') || e.message || 'Something went wrong';
 
+/**
+ * Fetch a token-protected file and return an object URL usable as <img src>.
+ * A plain <img src="/api/admin/…"> cannot send the Authorization header, so it
+ * would 401 — always go through this. The caller must URL.revokeObjectURL() it.
+ */
+export async function blobUrl(url, tokenKey = 'adminToken') {
+  const t = sessionStorage.getItem(tokenKey);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return URL.createObjectURL(await res.blob());
+}
+
 export async function downloadBlob(url, filename, tokenKey = 'adminToken') {
   const t = sessionStorage.getItem(tokenKey);
   const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });

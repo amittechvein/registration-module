@@ -861,6 +861,130 @@ router.get('/attachments/:id', requirePerm('submissions'), async (req, res) => {
   res.send(att.data);
 });
 
+// Inline view (opens in a browser tab instead of downloading) — used by the
+// admin preview so staff can eyeball a photo before deciding to replace it.
+router.get('/attachments/:id/view', requirePerm('submissions'), async (req, res) => {
+  const att = await Attachment.findByPk(req.params.id);
+  if (!att) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Content-Type', att.mimetype);
+  res.setHeader('Content-Disposition', `inline; filename="${att.filename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(att.data);
+});
+
+/* ---------- Replace a document on an already-submitted form ----------
+ * A parent uploads a blurry photo or the wrong certificate and only notices
+ * after paying. Staff with Edit permission can swap the file here.
+ *
+ * Safety rules baked in:
+ *   • the OLD file is never deleted — it is marked superseded and kept, so the
+ *     original submission can always be proven (see models/index.js)
+ *   • same MIME/size limits as the public form, so a replacement can never be
+ *     something the form itself would have rejected
+ *   • every replacement is written to the audit log with both filenames
+ *   • the answer JSON keeps its shape { attachmentId, filename } so PDFs,
+ *     exports and the applicant's own view keep working untouched
+ */
+const ATT_MIME = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
+const attUpload = require('multer')({
+  storage: require('multer').memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => (ATT_MIME[file.mimetype]
+    ? cb(null, true)
+    : cb(new Error('Only JPG, PNG, WEBP or PDF files are allowed'))),
+});
+
+router.post('/submissions/:id/attachment', requirePerm('edit'), (req, res) => {
+  attUpload.single('file')(req, res, async (err) => {
+    try {
+      if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File must be under 5 MB' : err.message });
+      if (!req.file) return res.status(400).json({ error: 'No file received' });
+
+      const fieldId = Number(req.body.fieldId);
+      if (!fieldId) return res.status(400).json({ error: 'fieldId is required' });
+
+      const s = await Submission.findByPk(req.params.id, {
+        include: [{
+          model: FormActivation, as: 'activation',
+          include: [{ model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] }],
+        }],
+      });
+      if (!s) return res.status(404).json({ error: 'Submission not found' });
+      if (s.isDraft) return res.status(400).json({ error: 'This form has not been submitted yet — the applicant can still change it themselves.' });
+
+      const field = (s.activation?.template?.sections || [])
+        .flatMap((sec) => sec.fields || [])
+        .find((f) => f.id === fieldId);
+      if (!field) return res.status(400).json({ error: 'That field does not belong to this form' });
+      if (field.fieldType !== 'file') return res.status(400).json({ error: `"${field.label}" is not a file field` });
+
+      const data = JSON.parse(s.data || '{}');
+      const oldVal = data[fieldId];
+      const oldId = oldVal && typeof oldVal === 'object' ? oldVal.attachmentId : null;
+
+      const base = (req.file.originalname || 'document').replace(/\.[^.]*$/, '')
+        .replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 80) || 'document';
+
+      const att = await Attachment.create({
+        applicantId: s.applicantId,
+        submissionId: s.id,
+        fieldId,
+        filename: base + ATT_MIME[req.file.mimetype],
+        mimetype: req.file.mimetype,
+        sizeBytes: req.file.size,
+        sha256: require('crypto').createHash('sha256').update(req.file.buffer).digest('hex'),
+        data: req.file.buffer,
+        supersedesId: oldId || null,
+      });
+
+      // Retire the previous file — kept, not destroyed.
+      if (oldId) {
+        const prev = await Attachment.findByPk(oldId);
+        if (prev) {
+          await prev.update({
+            isSuperseded: true,
+            replacedAt: new Date(),
+            replacedBy: req.admin?.name || req.admin?.email || 'admin',
+            replacedReason: String(req.body.reason || '').slice(0, 200) || null,
+            fieldId: prev.fieldId ?? fieldId,
+          });
+        }
+      }
+
+      data[fieldId] = { attachmentId: att.id, filename: att.filename };
+      await s.update({ data: JSON.stringify(data) });
+
+      await audit(req, 'submission.attachment.replace', {
+        entity: 'Submission', entityId: s.id,
+        summary: `Replaced "${field.label}" on form ${s.formNo || '#' + s.id}: ${oldVal?.filename || '(none)'} → ${att.filename}`,
+        details: {
+          field: field.label, fieldId,
+          from: oldVal?.filename || null, fromAttachmentId: oldId || null,
+          to: att.filename, toAttachmentId: att.id,
+          sizeBytes: att.sizeBytes, reason: req.body.reason || null,
+        },
+      });
+
+      res.json({ ok: true, attachmentId: att.id, filename: att.filename, sizeBytes: att.sizeBytes, replaced: oldVal?.filename || null });
+    } catch (e) {
+      console.error('[attachment.replace]', e);
+      res.status(500).json({ error: 'Could not save the replacement file' });
+    }
+  });
+});
+
+/** Previous versions of a file field — proof of what was originally submitted. */
+router.get('/submissions/:id/attachment-versions', requirePerm('submissions'), async (req, res) => {
+  const where = { submissionId: req.params.id, isSuperseded: true };
+  if (req.query.fieldId) where.fieldId = Number(req.query.fieldId);
+  const rows = await Attachment.findAll({
+    where,
+    attributes: ['id', 'filename', 'mimetype', 'sizeBytes', 'fieldId', 'replacedAt', 'replacedBy', 'replacedReason', 'createdAt'],
+    order: [['replacedAt', 'DESC']],
+  });
+  res.json(rows);
+});
+
 // ---------- Exports ----------
 router.get('/export/excel', requirePerm('export'), async (req, res) => {
   const rows = await findSubmissions(req.query);

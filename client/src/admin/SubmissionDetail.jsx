@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
+import { adminApi, errMsg, downloadBlob, blobUrl, hasPerm } from '../lib/api.js';
 
 /** Inline editor for one field, matching its configured type. */
 function EditInput({ fld, value, onChange }) {
@@ -38,6 +38,113 @@ function EditInput({ fld, value, onChange }) {
     default:
       return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} />;
   }
+}
+
+/**
+ * File field in edit mode: preview / download the current document, and replace
+ * it with a corrected one. The previous file is always kept (viewable under
+ * "earlier versions") so the original submission can still be proven.
+ */
+function FileFieldEditor({ submissionId, fld, value, onReplaced }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
+  const [versions, setVersions] = useState(null);
+  const inputRef = React.useRef(null);
+
+  const isImage = /\.(jpe?g|png|webp)$/i.test(value?.filename || '');
+  const [preview, setPreview] = useState(null);
+
+  // Thumbnails must be fetched with the admin token and shown from an object
+  // URL — a bare <img src="/api/admin/…"> gets a 401.
+  useEffect(() => {
+    let url = null, cancelled = false;
+    if (isImage && value?.attachmentId) {
+      blobUrl(`/api/admin/attachments/${value.attachmentId}/view`)
+        .then((u) => { if (cancelled) { URL.revokeObjectURL(u); return; } url = u; setPreview(u); })
+        .catch(() => setPreview(null));
+    } else setPreview(null);
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [value?.attachmentId, isImage]);
+
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file after an error
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setErr('File must be under 5 MB'); return; }
+
+    const label = value?.filename ? `Replace "${value.filename}" with "${file.name}"?` : `Attach "${file.name}"?`;
+    if (!window.confirm(`${label}\n\nThe existing file is kept in the record and stays viewable — nothing is deleted.`)) return;
+
+    setBusy(true); setErr(''); setOk('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('fieldId', fld.id);
+      const { data: r } = await adminApi.post(`/submissions/${submissionId}/attachment`, fd);
+      setOk(r.replaced ? `Replaced — ${r.replaced} → ${r.filename}` : `Attached ${r.filename}`);
+      setVersions(null);
+      onReplaced?.(r);
+    } catch (e2) { setErr(errMsg(e2)); }
+    setBusy(false);
+  };
+
+  const loadVersions = async () => {
+    try {
+      const { data: rows } = await adminApi.get(`/submissions/${submissionId}/attachment-versions`, { params: { fieldId: fld.id } });
+      setVersions(rows);
+    } catch (e2) { setErr(errMsg(e2)); }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+      {value?.attachmentId ? (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {preview && (
+            <img
+              src={preview}
+              alt=""
+              title="Current file"
+              style={{ width: 42, height: 52, objectFit: 'cover', borderRadius: 4, border: '1px solid #d8dde5' }}
+            />
+          )}
+          <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${value.attachmentId}`, value.filename || 'document')}>
+            📎 {value.filename || 'File'}
+          </button>
+        </div>
+      ) : (
+        <span className="kv-empty">No file uploaded</span>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn small" onClick={() => inputRef.current?.click()} disabled={busy}>
+          {busy ? 'Uploading…' : value?.attachmentId ? '🔄 Replace file' : '⬆ Attach file'}
+        </button>
+        <button className="btn small ghost" onClick={loadVersions} disabled={busy}>🕘 Earlier versions</button>
+        <input
+          ref={inputRef} type="file" style={{ display: 'none' }}
+          accept="image/jpeg,image/png,image/webp,application/pdf" onChange={pick}
+        />
+      </div>
+
+      <div className="muted" style={{ fontSize: 11 }}>JPG, PNG, WEBP or PDF · max 5 MB · saved immediately &amp; audit-logged</div>
+      {ok && <div className="alert ok" style={{ margin: 0, padding: '4px 8px', fontSize: 12 }}>{ok}</div>}
+      {err && <div className="alert err" style={{ margin: 0, padding: '4px 8px', fontSize: 12 }}>{err}</div>}
+
+      {versions && (
+        versions.length ? (
+          <div style={{ fontSize: 11.5 }}>
+            {versions.map((v) => (
+              <div key={v.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${v.id}`, v.filename)}>📎 {v.filename}</button>
+                <span className="muted">replaced {v.replacedAt ? new Date(v.replacedAt).toLocaleString('en-IN') : ''} by {v.replacedBy || '—'}</span>
+              </div>
+            ))}
+          </div>
+        ) : <div className="muted" style={{ fontSize: 11.5 }}>No earlier versions — this is the original file.</div>
+      )}
+    </div>
+  );
 }
 
 export default function SubmissionDetail() {
@@ -151,7 +258,7 @@ export default function SubmissionDetail() {
                 )}
               </div>
             </div>
-            {editing && <div className="alert ok" style={{ marginTop: 8 }}>Editing form data — every change is recorded in the audit log with before/after values. File attachments can't be replaced here.</div>}
+            {editing && <div className="alert ok" style={{ marginTop: 8 }}>Editing form data — every change is recorded in the audit log with before/after values. Documents can be replaced too: the new file saves immediately, and the one it replaces is kept and stays viewable under “Earlier versions”.</div>}
 
             {sections.map((sec) => {
               const flds = editing ? sec.fields : (showEmpty ? sec.fields : sec.fields.filter((f) => !isEmpty(data[f.id])));
@@ -166,11 +273,26 @@ export default function SubmissionDetail() {
                       return (
                         <div key={fld.id} className={`kv-item ${wide ? 'wide' : ''}`}>
                           <div className="kv-k">{fld.label}{fld.studentField ? <span title="Linked to student profile"> 🔗</span> : ''}</div>
-                          {editing && fld.fieldType !== 'file' ? (
+                          {editing && fld.fieldType === 'file' ? (
+                            <FileFieldEditor
+                              submissionId={id}
+                              fld={fld}
+                              value={data[fld.id]}
+                              onReplaced={(r) => {
+                                // CRITICAL: the replacement is saved server-side
+                                // immediately, but the pending edit buffer still
+                                // holds the OLD reference. Without this line,
+                                // clicking "Save Changes" afterwards would write
+                                // the old attachment back and undo the replace.
+                                setEditData((d) => ({ ...d, [fld.id]: { attachmentId: r.attachmentId, filename: r.filename } }));
+                                load();
+                              }}
+                            />
+                          ) : editing ? (
                             <EditInput fld={fld} value={v} onChange={(nv) => setEditData((d) => ({ ...d, [fld.id]: nv }))} />
-                          ) : isFileVal(editing ? data[fld.id] : v) ? (
-                            <button className="btn small ghost" onClick={() => { const fv = editing ? data[fld.id] : v; downloadBlob(`/api/admin/attachments/${fv.attachmentId}`, fv.filename || 'document'); }}>
-                              📎 {(editing ? data[fld.id] : v).filename || 'File'}
+                          ) : isFileVal(v) ? (
+                            <button className="btn small ghost" onClick={() => downloadBlob(`/api/admin/attachments/${v.attachmentId}`, v.filename || 'document')}>
+                              📎 {v.filename || 'File'}
                             </button>
                           ) : (
                             <div className="kv-v">{Array.isArray(v) ? v.join(', ') : (isEmpty(v) ? <span className="kv-empty">—</span> : String(v))}</div>
