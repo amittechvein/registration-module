@@ -1,17 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
+import SendTemplateMail from './SendTemplateMail.jsx';
 
 export default function Submissions() {
   const [meta, setMeta] = useState({ sessions: [], classes: [] });
   const [activations, setActivations] = useState([]);
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState([]);
-  const [sortByScore, setSortByScore] = useState(false);
+  // sort: null = as loaded (newest first) | 'score' | 'status' | 'status-desc'
+  const [sortBy, setSortBy] = useState(null);
+  const sortByScore = sortBy === 'score';
+  const setSortByScore = (on) => setSortBy(on ? 'score' : null);
+  const sortedRows = React.useMemo(() => {
+    if (sortBy === 'score') return [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    if (sortBy === 'status' || sortBy === 'status-desc') {
+      // group by status name (A→Z), drafts/no-status last; within a status keep form-number order
+      const key = (r) => (r.status?.name || (r.isDraft ? '~~draft' : '~~none')).toLowerCase();
+      const dir = sortBy === 'status' ? 1 : -1;
+      return [...rows].sort((a, b) => {
+        const c = key(a).localeCompare(key(b));
+        return c !== 0 ? c * dir : String(a.formNo || '').localeCompare(String(b.formNo || ''));
+      });
+    }
+    return rows;
+  }, [rows, sortBy]);
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkMsg, setBulkMsg] = useState('');
   const [bulkCh, setBulkCh] = useState({ sms: false, email: false });
   const [bulkNote, setBulkNote] = useState('');
+  const [mailIds, setMailIds] = useState(null); // ids of ticked rows when the Send Email panel is open
   const [recon, setRecon] = useState(null);
   const [reconResults, setReconResults] = useState(null);
   const [rowBusy, setRowBusy] = useState(null);        // submission id being checked
@@ -60,11 +78,21 @@ export default function Submissions() {
 
   const chosenActivation = activations.find((a) => String(a.id) === String(f.activationId));
   const statusOptions = chosenActivation ? chosenActivation.statuses : [...new Map(activations.flatMap((a) => a.statuses).map((s) => [s.name, s])).values()];
+  // Statuses belong to a form (activation). With the filter on "All forms", work the
+  // form out from the ticked rows instead — as long as they all belong to one form.
+  const selRows = rows.filter((r) => sel.includes(r.id));
+  const selActivationIds = [...new Set(selRows.map((r) => r.activation?.id ?? r.activationId).filter((x) => x != null).map(String))];
+  const bulkActivation = chosenActivation
+    || (selActivationIds.length === 1 ? activations.find((a) => String(a.id) === selActivationIds[0]) : null);
+  const bulkStatusOptions = bulkActivation ? (bulkActivation.statuses || []) : [];
+  // If the selection moves to a different form, a previously chosen status no longer applies
+  const bulkKey = bulkActivation ? String(bulkActivation.id) : '';
+  useEffect(() => { setBulkStatus(''); }, [bulkKey]);
 
   const [bulkBusy, setBulkBusy] = useState(false);
   const applyBulk = async () => {
     if (!bulkStatus || !sel.length || bulkBusy) return;
-    const statusName = statusOptions.find((s) => String(s.id) === String(bulkStatus))?.name || 'new status';
+    const statusName = bulkStatusOptions.find((s) => String(s.id) === String(bulkStatus))?.name || 'new status';
     setBulkBusy(true); setErr('');
     setBulkNote(`Applying "${statusName}" to ${sel.length} submission(s)…`);
     try {
@@ -228,11 +256,23 @@ export default function Submissions() {
               <>
                 <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} style={{ width: 220 }}>
                   <option value="">Change status to…</option>
-                  {(chosenActivation ? chosenActivation.statuses : []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {bulkStatusOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
-                <button className="btn" onClick={applyBulk} disabled={!bulkStatus || bulkBusy}>{bulkBusy ? 'Applying…' : 'Apply Status'}</button>
-                {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
+                <button className="btn" onClick={applyBulk} disabled={!bulkStatus || bulkBusy || !bulkActivation}>{bulkBusy ? 'Applying…' : 'Apply Status'}</button>
+                {!bulkActivation && (
+                  <span className="muted">
+                    {selActivationIds.length > 1
+                      ? 'The ticked forms belong to different forms — tick forms from one form only, or pick a Form in the filter'
+                      : 'Pick a Form in the filter, or tick submissions to load that form\'s statuses'}
+                  </span>
+                )}
+                {bulkActivation && !chosenActivation && <span className="muted">Statuses of: {bulkActivation.title}</span>}
               </>
+            )}
+            {hasPerm('communicate') && (
+              <button className="btn ghost" onClick={() => setMailIds([...sel])} title="Send a formatted letter (e.g. Selected / Not selected) to the ticked applicants only">
+                📧 Send Email ({sel.length})
+              </button>
             )}
             {/* Delete button hidden after test-data cleanup (change false → hasPerm('edit') to re-enable) */}
             {false && (
@@ -287,6 +327,13 @@ export default function Submissions() {
           )}
         </div>
       )}
+      {mailIds && (
+        <SendTemplateMail
+          ids={mailIds}
+          onClose={() => setMailIds(null)}
+          onSent={(d) => setBulkNote(`📧 Email sent to ${d.sent} of ${d.total} selected applicant(s)`)}
+        />
+      )}
       {/* After a bulk status change the selection is cleared (card above unmounts) — keep the result visible */}
       {sel.length === 0 && bulkNote && (
         <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -304,11 +351,14 @@ export default function Submissions() {
               <th style={{ cursor: 'pointer' }} onClick={() => setSortByScore(!sortByScore)} title="Auto-computed admission priority — click to sort">
                 Score {sortByScore ? '▼' : '⇅'}
               </th>
-              <th>Status</th><th>Payment</th><th>Submitted</th><th></th>
+              <th style={{ cursor: 'pointer' }} onClick={() => setSortBy(sortBy === 'status' ? 'status-desc' : sortBy === 'status-desc' ? null : 'status')} title="Click to group by status (A→Z, then Z→A, then off)">
+                Status {sortBy === 'status' ? '▲' : sortBy === 'status-desc' ? '▼' : '⇅'}
+              </th>
+              <th>Payment</th><th>Submitted</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {(sortByScore ? [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1)) : rows).map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.id}>
                 <td><input type="checkbox" checked={sel.includes(r.id)} onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td>
                 <td><Link to={`/admin/submissions/${r.id}`}><b>{r.formNo || (r.isDraft ? 'DRAFT' : '—')}</b></Link></td>

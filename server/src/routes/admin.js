@@ -885,6 +885,109 @@ router.post('/submissions/bulk-communications', requirePerm('communicate'), asyn
   res.json({ ok: true, count: results.length, results });
 });
 
+// ---------- Email templates (selected / not-selected letters etc.) ----------
+const mailTemplates = require('../services/mail-templates');
+
+router.get('/mail-templates', requirePerm('communicate', 'settings'), async (_req, res) => {
+  res.json(await mailTemplates.listTemplates());
+});
+
+router.put('/mail-templates', requirePerm('settings'), async (req, res) => {
+  try {
+    const saved = await mailTemplates.saveTemplates(req.body.templates);
+    await audit(req, 'mailtemplate.save', { entity: 'Setting', summary: `Saved ${saved.length} email template(s): ${saved.map((t) => t.name).join(', ')}` });
+    res.json(saved);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/mail-templates/reset', requirePerm('settings'), async (req, res) => {
+  const saved = await mailTemplates.saveTemplates(mailTemplates.DEFAULT_TEMPLATES);
+  await audit(req, 'mailtemplate.reset', { entity: 'Setting', summary: 'Email templates reset to defaults' });
+  res.json(saved);
+});
+
+/** Load ONLY the selected submissions with everything the templates need. */
+async function loadForMail(ids) {
+  const list = Array.isArray(ids) ? [...new Set(ids.map(Number).filter(Number.isFinite))] : [];
+  if (!list.length) throw new Error('No applicants selected');
+  if (list.length > 300) throw new Error('Select at most 300 applicants per send');
+  const subs = await Submission.findAll({
+    where: { id: list },
+    include: [
+      { model: Applicant, as: 'applicant' },
+      { model: FormActivation, as: 'activation', include: [{ model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' }] },
+    ],
+  });
+  // student name from the template's First/Last Name fields (same logic as the list)
+  const tplIds = [...new Set(subs.map((r) => r.activation?.templateId).filter(Boolean))];
+  const secs = tplIds.length ? await FormSection.findAll({ where: { templateId: tplIds }, include: [{ model: FormField, as: 'fields' }] }) : [];
+  const nameMap = {};
+  for (const sec of secs) {
+    const m = (nameMap[sec.templateId] = nameMap[sec.templateId] || {});
+    for (const f of sec.fields) { if (f.studentField === 'firstName') m.fn = f.id; if (f.studentField === 'lastName') m.ln = f.id; }
+  }
+  const byId = new Map(subs.map((s) => [s.id, s]));
+  return list.filter((id) => byId.has(id)).map((id) => {
+    const s = byId.get(id);
+    const m = nameMap[s.activation?.templateId] || {};
+    let d = {}; try { d = JSON.parse(s.data || '{}'); } catch {}
+    const studentName = [d[m.fn], d[m.ln]].filter((x) => x && typeof x !== 'object').join(' ');
+    return { sub: s, studentName };
+  });
+}
+
+// Preview: exactly what each selected applicant would receive. Sends nothing.
+router.post('/submissions/mail-preview', requirePerm('communicate'), async (req, res) => {
+  try {
+    const { ids, templateId } = req.body;
+    const tpl = (await mailTemplates.listTemplates()).find((t) => t.id === templateId);
+    if (!tpl) return res.status(400).json({ error: 'Template not found' });
+    const rows = await loadForMail(ids);
+    const out = rows.map(({ sub, studentName }) => {
+      const r = mailTemplates.render(tpl, mailTemplates.varsFor(sub, studentName));
+      const email = (sub.applicant?.email || '').trim();
+      return {
+        id: sub.id, formNo: sub.formNo, isDraft: sub.isDraft, studentName, parentName: sub.applicant?.name || '', phone: sub.applicant?.phone || '',
+        email, canSend: !!email && !sub.isDraft && !!sub.formNo,
+        reason: !email ? 'no email address on file' : sub.isDraft ? 'draft (not submitted)' : !sub.formNo ? 'no form number' : '',
+        subject: r.subject, html: r.html, text: r.text,
+        unresolved: [...new Set([...mailTemplates.unresolved(r.subject), ...mailTemplates.unresolved(r.html)])],
+      };
+    });
+    res.json({ template: { id: tpl.id, name: tpl.name }, recipients: out, sendable: out.filter((r) => r.canSend).length });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Send: ONLY to the ids the admin verified in the preview. Requires confirmed:true.
+router.post('/submissions/mail-send', requirePerm('communicate'), async (req, res) => {
+  try {
+    const { ids, templateId, confirmed } = req.body;
+    if (confirmed !== true) return res.status(400).json({ error: 'Please verify the preview and tick the confirmation before sending' });
+    const tpl = (await mailTemplates.listTemplates()).find((t) => t.id === templateId);
+    if (!tpl) return res.status(400).json({ error: 'Template not found' });
+    const { sendEmailDetailed } = require('../services/notify');
+    const rows = await loadForMail(ids);
+    const results = await inBatches(rows, 5, async ({ sub, studentName }) => {
+      const email = (sub.applicant?.email || '').trim();
+      if (!email || sub.isDraft || !sub.formNo) return { id: sub.id, formNo: sub.formNo, email, skipped: !email ? 'no email address' : sub.isDraft ? 'draft' : 'no form number' };
+      const r = mailTemplates.render(tpl, mailTemplates.varsFor(sub, studentName));
+      const sent = await sendEmailDetailed(email, r.subject, r.text, [], { html: r.html });
+      await Communication.create({
+        submissionId: sub.id, sender: 'admin', channel: 'email',
+        message: `${sent.ok ? '' : '[FAILED] '}[${tpl.name}] ${r.subject}\n\n${r.text}`,
+      });
+      return { id: sub.id, formNo: sub.formNo, email, ok: sent.ok, error: sent.ok ? undefined : sent.error };
+    });
+    const sentCount = results.filter((r) => r.ok).length;
+    await audit(req, 'message.template', {
+      entity: 'Submission',
+      summary: `Emailed template "${tpl.name}" to ${sentCount}/${results.length} selected applicant(s)`,
+      details: { templateId: tpl.id, ids: results.map((r) => r.id), failed: results.filter((r) => r.error).map((r) => r.formNo), skipped: results.filter((r) => r.skipped).map((r) => r.formNo) },
+    });
+    res.json({ ok: true, sent: sentCount, total: results.length, results });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // ---------- Attachments (secure download, admin only) ----------
 router.get('/attachments/:id', requirePerm('submissions'), async (req, res) => {
   const att = await Attachment.findByPk(req.params.id);

@@ -18,6 +18,7 @@ import Users from './admin/Users.jsx';
 import AuditLog from './admin/AuditLog.jsx';
 import Payments from './admin/Payments.jsx';
 import Designer from './admin/Designer.jsx';
+import MailTemplates from './admin/MailTemplates.jsx';
 
 import Home from './public/Home.jsx';
 import FormPage from './public/FormPage.jsx';
@@ -46,6 +47,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="submissions/:id" element={<SubmissionDetail />} />
           <Route path="payments" element={<Payments />} />
           <Route path="students" element={<Students />} />
+          <Route path="mail-templates" element={<MailTemplates />} />
           <Route path="settings" element={<Settings />} />
           <Route path="users" element={<Users />} />
           <Route path="audit" element={<AuditLog />} />

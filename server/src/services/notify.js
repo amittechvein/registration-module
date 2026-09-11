@@ -26,7 +26,7 @@ function textToHtml(text) {
  * report does). If something passes attachments anyway they are dropped and a
  * note is added to the body, rather than failing the whole email.
  */
-async function sendEmailDetailed(to, subject, body, attachments = []) {
+async function sendEmailDetailed(to, subject, body, attachments = [], opts = {}) {
   if (!to) return { ok: false, error: 'no recipient address', provider: 'TatvaOS' };
   const cfg = await getConfig();
   const key = (cfg.TATVAOS_MAIL_KEY || '').trim();
@@ -42,7 +42,7 @@ async function sendEmailDetailed(to, subject, body, attachments = []) {
     console.warn(`[email:tatvaos] ${attachments.length} attachment(s) dropped — TatvaOS Mail does not support attachments (${attachments.map((a) => a.filename).join(', ')})`);
     text += `\n\n(Files cannot be attached to this email. Please download them from the admin panel.)`;
   }
-  const payload = { from, to: String(to).trim(), subject: String(subject || '').slice(0, 500), text, html: textToHtml(text) };
+  const payload = { from, to: String(to).trim(), subject: String(subject || '').slice(0, 500), text, html: opts.html || textToHtml(text) };
   if (cfg.MAIL_REPLY_TO) payload.replyTo = cfg.MAIL_REPLY_TO.trim();
 
   try {

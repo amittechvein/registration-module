@@ -9,6 +9,7 @@ const NAV = [
   { to: '/admin/submissions', icon: '📥', label: 'Submissions', perm: 'submissions', bubble: '#fce8e6' },
   { to: '/admin/payments', icon: '💳', label: 'Payments', perm: 'submissions', bubble: '#e8f5e9' },
   { to: '/admin/students', icon: '🎓', label: 'Allotted Students', perm: 'students', bubble: '#f3e8fd' },
+  { to: '/admin/mail-templates', icon: '✉️', label: 'Email Templates', perm: 'communicate', bubble: '#fff3e0' },
   { to: '/admin/settings', icon: '⚙️', label: 'Settings', perm: 'settings', bubble: '#e0f7fa' },
   { to: '/admin/users', icon: '👥', label: 'Users', perm: 'users', bubble: '#fde7f3' },
   { to: '/admin/audit', icon: '📜', label: 'Audit Log', perm: 'audit', bubble: '#f1f5f9' },
