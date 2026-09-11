@@ -9,6 +9,16 @@
 const { AdminUser, Setting, FormActivation, FormSection, FormField, Submission, Applicant, FormStatus, ClassRoom, AcademicSession } = require('../models');
 const { sendEmail } = require('./notify');
 const { getConfig } = require('./settings');
+const { signFor } = require('../middleware/auth');
+
+const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://form.techvein.org').replace(/\/$/, '');
+const EXCEL_LINK_DAYS = 3;
+
+/** Signed, time-limited link to today's submissions Excel (email cannot carry attachments). */
+function excelDownloadLink() {
+  const token = signFor({ role: 'report-download', kind: 'excel' }, `${EXCEL_LINK_DAYS}d`);
+  return `${BASE_URL}/api/admin/reports/excel?token=${token}`;
+}
 
 const IST_OFFSET_MIN = 330; // UTC+5:30
 
@@ -117,8 +127,11 @@ async function buildSummaryText() {
     '------------',
   ];
   const footer = [
-    'The complete submissions Excel (all forms, every answer) is attached.',
-    'Admin panel: https://form.techvein.org/admin',
+    'DOWNLOAD THE COMPLETE SUBMISSIONS EXCEL (all forms, every answer):',
+    excelDownloadLink(),
+    `(link works for ${EXCEL_LINK_DAYS} days — anyone with it can download the file, so do not forward it)`,
+    '',
+    `Admin panel: ${BASE_URL}/admin`,
   ];
   return [...header, ...lines, ...footer].join('\n');
 }
@@ -128,12 +141,13 @@ async function sendDailyReport() {
   const owners = await AdminUser.findAll({ where: { role: 'owner', active: true } });
   const emails = owners.map((o) => o.email).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || ''));
   if (!emails.length) return { sent: [], skipped: 'no owner has a valid email' };
-  const [summary, excel] = await Promise.all([buildSummaryText(), buildExcelBuffer()]);
-  const subject = `Admissions Daily Report — ${istDateStr()} (${excel.count} submissions)`;
-  const attachments = [{ filename: `submissions-${istDateStr()}.xlsx`, content: excel.buffer }];
+  // TatvaOS Mail cannot carry attachments: the summary links to a signed
+  // download of the Excel instead (see excelDownloadLink / GET /reports/excel).
+  const [summary, count] = await Promise.all([buildSummaryText(), Submission.count({ where: { isDraft: false } })]);
+  const subject = `Admissions Daily Report — ${istDateStr()} (${count} submissions)`;
   const sent = [];
   for (const email of emails) {
-    const ok = await sendEmail(email, subject, summary, attachments);
+    const ok = await sendEmail(email, subject, summary);
     if (ok) sent.push(email);
   }
   console.log(`[report] daily report sent to: ${sent.join(', ') || 'nobody (email failed)'}`);
@@ -160,4 +174,4 @@ function startReportScheduler() {
   console.log('[report] daily report scheduler started (time configurable in Settings)');
 }
 
-module.exports = { sendDailyReport, startReportScheduler, buildExcelBuffer, buildSummaryText };
+module.exports = { sendDailyReport, startReportScheduler, buildExcelBuffer, buildSummaryText, excelDownloadLink };

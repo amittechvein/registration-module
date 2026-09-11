@@ -21,24 +21,31 @@ const SETTING_DEFS = [
   // Login options
   { key: 'GOOGLE_CLIENT_ID', group: 'auth', label: 'Google OAuth Client ID', secret: false },
   { key: 'GOOGLE_CLIENT_SECRET', group: 'auth', label: 'Google OAuth Client Secret', secret: true },
-  // Email (Brevo API — recommended, works even when SMTP ports are blocked)
-  { key: 'BREVO_API_KEY', group: 'email', label: 'Brevo API Key (recommended)', secret: true },
+  // Email — TatvaOS Mail API (one endpoint, one key; see TatvaOS Mail API Integration Guide)
+  { key: 'TATVAOS_MAIL_KEY', group: 'email', label: 'TatvaOS API Key (tvos_…)', secret: true },
+  { key: 'MAIL_FROM', group: 'email', label: 'From Address (a mailbox on your verified domain)', secret: false },
+  { key: 'MAIL_REPLY_TO', group: 'email', label: 'Reply-To Address (optional)', secret: false },
   // Daily report to Owners
   { key: 'REPORT_ENABLED', group: 'reports', label: 'Send daily report', secret: false },
   { key: 'REPORT_TIME', group: 'reports', label: 'Send time (IST, 24h e.g. 08:00)', secret: false },
-  // Email (SMTP)
-  { key: 'SMTP_HOST', group: 'email', label: 'SMTP Host', secret: false },
-  { key: 'SMTP_PORT', group: 'email', label: 'SMTP Port', secret: false },
-  { key: 'SMTP_USER', group: 'email', label: 'SMTP Username', secret: false },
-  { key: 'SMTP_PASS', group: 'email', label: 'SMTP Password', secret: true },
-  { key: 'SMTP_FROM', group: 'email', label: 'From Address', secret: false },
 ];
+
+/** Keys from the previous Brevo/SMTP integration — removed from the DB on first load. */
+const LEGACY_KEYS = ['BREVO_API_KEY', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
 
 const MASK = '••••••••';
 let cache = null;
+let legacyCleaned = false;
 
 async function getConfig() {
   if (!cache) {
+    if (!legacyCleaned) {
+      legacyCleaned = true;
+      try {
+        const n = await Setting.destroy({ where: { key: LEGACY_KEYS } });
+        if (n) console.log(`[settings] removed ${n} legacy email setting(s) (Brevo/SMTP)`);
+      } catch (e) { console.error('[settings] legacy cleanup failed:', e.message); }
+    }
     const rows = await Setting.findAll();
     const db = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     cache = {};
@@ -69,6 +76,12 @@ async function saveFromAdmin(values) {
     if (!validKeys.has(key)) continue;
     const value = String(raw ?? '').trim();
     if (value === MASK) continue; // untouched secret
+    if (key === 'TATVAOS_MAIL_KEY' && value && !/^tvos_[A-Za-z0-9]+$/.test(value)) {
+      throw new Error('TatvaOS API key should start with "tvos_" — copy it exactly as shown in TatvaOS → Organisation → API keys');
+    }
+    if ((key === 'MAIL_FROM' || key === 'MAIL_REPLY_TO') && value && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)) {
+      throw new Error(`${key === 'MAIL_FROM' ? 'From' : 'Reply-To'} address must be a plain email like noreply@your-domain.com (no display name)`);
+    }
     const [row] = await Setting.findOrCreate({ where: { key }, defaults: { key, value } });
     if (row.value !== value) await row.update({ value });
   }

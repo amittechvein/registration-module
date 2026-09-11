@@ -7,7 +7,7 @@ const {
   Applicant, Attachment, Submission, Payment, Communication, StatusLog, Student, STUDENT_FIELDS,
 } = require('../models');
 const sanitizeHtml = require('sanitize-html');
-const { sign, adminAuth, requirePerm } = require('../middleware/auth');
+const { sign, verify, adminAuth, requirePerm } = require('../middleware/auth');
 const { notifyStatusChange } = require('../services/notify');
 const { allotStudent } = require('../services/allotment');
 const { audit } = require('../services/audit');
@@ -52,6 +52,30 @@ router.post('/auth/google', async (req, res) => {
     res.json(adminToken(user));
   } catch (e) {
     res.status(500).json({ error: 'Google login failed: ' + e.message });
+  }
+});
+
+// Excel download from the daily report email. TatvaOS Mail cannot carry
+// attachments, so the email links here with a signed token (3-day expiry,
+// issued only by reports.js). Registered before adminAuth on purpose.
+router.get('/reports/excel', async (req, res) => {
+  try {
+    const t = verify(String(req.query.token || ''));
+    if (t.role !== 'report-download' || t.kind !== 'excel') throw new Error('wrong token');
+  } catch {
+    return res.status(401).send('This download link is invalid or has expired (links last 3 days). Open the admin panel → Submissions → Export Excel instead.');
+  }
+  try {
+    const { buildExcelBuffer } = require('../services/reports');
+    const { buffer } = await buildExcelBuffer();
+    const day = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="submissions-${day}.xlsx"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (e) {
+    console.error('[reports] excel download failed:', e.message);
+    res.status(500).send('Could not build the Excel file. Try again from the admin panel.');
   }
 });
 
@@ -764,8 +788,16 @@ async function changeStatus(submissionId, statusId, note, adminName) {
   if (newStatus.isAllotted) {
     await allotStudent({ submission: s, activation: s.activation, applicant: s.applicant });
   }
-  await notifyStatusChange({ submission: s, applicant: s.applicant, status: newStatus, activation: s.activation, className: s.activation?.classRoom?.name });
-  return { id: s.id, status: newStatus.name };
+  // The status is already saved. A failing SMS/email provider must not turn
+  // that into a "failed" result — report it as a warning instead.
+  let warning;
+  try {
+    await notifyStatusChange({ submission: s, applicant: s.applicant, status: newStatus, activation: s.activation, className: s.activation?.classRoom?.name });
+  } catch (e) {
+    console.error(`[status] notification failed for submission #${s.id}:`, e.message);
+    warning = `notification failed: ${e.message}`;
+  }
+  return { id: s.id, status: newStatus.name, ...(warning ? { warning } : {}) };
 }
 
 router.post('/submissions/:id/status', requirePerm('status'), async (req, res) => {
@@ -780,11 +812,13 @@ router.post('/submissions/:id/status', requirePerm('status'), async (req, res) =
 
 router.post('/submissions/bulk-status', requirePerm('status'), async (req, res) => {
   const { ids = [], statusId, note } = req.body;
-  const results = [];
-  for (const id of ids) {
-    try { results.push(await changeStatus(id, statusId, note, req.admin.name)); }
-    catch (e) { results.push({ id, error: e.message }); }
-  }
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'No submissions selected' });
+  if (!statusId) return res.status(400).json({ error: 'No status chosen' });
+  // 5 at a time: each row may send an SMS + email, and nginx cuts the request at 60 s.
+  const results = await inBatches(ids, 5, async (id) => {
+    try { return await changeStatus(id, statusId, note, req.admin.name); }
+    catch (e) { console.error(`[status] bulk change failed for #${id}:`, e.message); return { id, error: e.message }; }
+  });
   const okCount = results.filter((r) => !r.error).length;
   await audit(req, 'status.bulk', { entity: 'Submission', summary: `Bulk status change: ${okCount}/${ids.length} submissions → "${results.find((r) => !r.error)?.status || ''}"`, details: { ids, note } });
   res.json(results);
@@ -1108,10 +1142,14 @@ router.get('/settings', requirePerm('settings'), async (_req, res) => {
 });
 
 router.post('/settings', requirePerm('settings'), async (req, res) => {
-  await settingsService.saveFromAdmin(req.body.settings || {});
+  try {
+    await settingsService.saveFromAdmin(req.body.settings || {});
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
   const { getGateway } = require('../services/payment');
   const gw = await getGateway();
-  await audit(req, 'settings.save', { entity: 'Setting', summary: 'Updated settings (SMS/Email/Razorpay/Login)' });
+  await audit(req, 'settings.save', { entity: 'Setting', summary: 'Updated settings (SMS/Email/Razorpay/Login/Reports)' });
   res.json({ ok: true, razorpayMode: gw.mock ? 'mock' : (gw.keyId || '').startsWith('rzp_live') ? 'live' : 'test' });
 });
 
@@ -1128,11 +1166,17 @@ router.post('/settings/test-sms', requirePerm('settings'), async (req, res) => {
 router.post('/settings/test-email', requirePerm('settings'), async (req, res) => {
   const to = String(req.body.to || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid email address' });
-  const { sendEmail } = require('../services/notify');
-  const ok = await sendEmail(to, 'Test email from admission portal', 'If you received this, email settings are working.');
+  const { sendEmailDetailed } = require('../services/notify');
   const cfg = await settingsService.getConfig();
-  const provider = cfg.SMTP_HOST ? `SMTP (${cfg.SMTP_HOST})` : 'console (no SMTP configured)';
-  res.json({ ok, provider, note: ok ? `Sent via ${provider}` : `Failed via ${provider} — check credentials / server logs` });
+  const r = await sendEmailDetailed(
+    to,
+    'Test email from the admissions portal',
+    `Hello,\n\nThis is a test message from the ${process.env.SCHOOL_NAME || 'Nirmala Convent School'} admissions portal. If you are reading it, email delivery through TatvaOS Mail is working.\n\nSent from: ${cfg.MAIL_FROM || '(not set)'}\n\nRegards,\nAdmissions Portal`
+  );
+  const note = r.ok
+    ? (r.status === 202 ? `Accepted by TatvaOS (202) from ${cfg.MAIL_FROM} — check the inbox (and spam folder for a new sender)` : `No TatvaOS key/from address saved — printed to the server log only`)
+    : `${r.provider} error${r.status ? ` ${r.status}` : ''}: ${r.error}`;
+  res.json({ ok: r.ok, provider: r.provider, note });
 });
 
 // Send the daily Owners report immediately (for testing / on demand)
@@ -1154,7 +1198,7 @@ router.get('/settings/status', requirePerm('settings'), async (_req, res) => {
   res.json({
     razorpay: gw.mock ? { mode: 'mock' } : { mode: (gw.keyId || '').startsWith('rzp_live') ? 'live' : 'test', keyId: gw.keyId },
     sms: cfg.INFOBIP_USERNAME ? 'Infobip' : cfg.MSG91_AUTH_KEY ? 'MSG91' : 'not configured (console)',
-    email: cfg.SMTP_HOST ? `SMTP: ${cfg.SMTP_HOST}` : 'not configured (console)',
+    email: cfg.TATVAOS_MAIL_KEY && cfg.MAIL_FROM ? `TatvaOS Mail · from ${cfg.MAIL_FROM}` : 'not configured (console)',
     devShowOtp: String(cfg.DEV_SHOW_OTP || 'true') === 'true',
   });
 });

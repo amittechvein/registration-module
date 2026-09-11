@@ -1,4 +1,3 @@
-const nodemailer = require('nodemailer');
 const { Communication } = require('../models');
 const { getConfig } = require('./settings');
 
@@ -6,59 +5,68 @@ function renderTemplate(tpl, vars) {
   return (tpl || '').replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
 }
 
+const TATVAOS_MAIL_URL = 'https://core.tatvaos.com/api/v1/mail/send';
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+/** Plain text → minimal HTML (TatvaOS recommends sending both; links become clickable). */
+function textToHtml(text) {
+  const withLinks = escapeHtml(text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${withLinks}</div>`;
+}
+
 /**
- * Send an email. `attachments` (optional): [{ filename, content: Buffer }].
+ * Send one email through the TatvaOS Mail API and report exactly what happened.
+ * Returns { ok, status, error, provider }. Never throws.
+ *
+ * TatvaOS Mail (Integration Guide v1.1): POST JSON {from,to,subject,text,html,replyTo}
+ * with "Authorization: Bearer tvos_…"; 202 = accepted for delivery. Attachments
+ * are NOT supported by the API — callers must link to files instead (the daily
+ * report does). If something passes attachments anyway they are dropped and a
+ * note is added to the body, rather than failing the whole email.
  */
-async function sendEmail(to, subject, body, attachments = []) {
-  if (!to) return false;
+async function sendEmailDetailed(to, subject, body, attachments = []) {
+  if (!to) return { ok: false, error: 'no recipient address', provider: 'TatvaOS' };
   const cfg = await getConfig();
+  const key = (cfg.TATVAOS_MAIL_KEY || '').trim();
+  const from = (cfg.MAIL_FROM || '').trim();
 
-  // Brevo HTTP API (port 443) — works even where SMTP ports are blocked (e.g. new Linode accounts)
-  if (cfg.BREVO_API_KEY) {
-    try {
-      const from = cfg.SMTP_FROM || 'Admissions <admissions@example.com>';
-      const m = from.match(/^(.*)<(.+)>$/);
-      const sender = m ? { name: m[1].trim().replace(/^"|"$/g, ''), email: m[2].trim() } : { email: from.trim() };
-      const payload = { sender, to: [{ email: to }], subject, textContent: body };
-      if (attachments.length) {
-        payload.attachment = attachments.map((a) => ({ name: a.filename, content: a.content.toString('base64') }));
-      }
-      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'api-key': cfg.BREVO_API_KEY },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!res.ok) console.error('[email:brevo] response:', (await res.text()).slice(0, 300));
-      return res.ok;
-    } catch (e) {
-      console.error('[email:brevo] send failed:', e.message);
-      return false;
-    }
+  if (!key || !from) {
+    console.log(`[email:console] to=${to} subject="${subject}" body="${String(body).slice(0, 200)}…" (TatvaOS not configured)`);
+    return { ok: true, status: 0, provider: 'console (TatvaOS Mail not configured)' };
   }
 
-  if (cfg.SMTP_HOST) {
-    try {
-      const transporter = nodemailer.createTransport({
-        host: cfg.SMTP_HOST,
-        port: Number(cfg.SMTP_PORT || 587),
-        secure: Number(cfg.SMTP_PORT) === 465,
-        auth: cfg.SMTP_USER ? { user: cfg.SMTP_USER, pass: cfg.SMTP_PASS } : undefined,
-        // fail fast instead of hanging into a gateway timeout when ports are blocked
-        connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 12000,
-      });
-      await transporter.sendMail({
-        from: cfg.SMTP_FROM || 'admissions@example.com', to, subject, text: body,
-        attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })),
-      });
-      return true;
-    } catch (e) {
-      console.error('[email] send failed:', e.message);
-      return false;
-    }
+  let text = String(body ?? '');
+  if (attachments.length) {
+    console.warn(`[email:tatvaos] ${attachments.length} attachment(s) dropped — TatvaOS Mail does not support attachments (${attachments.map((a) => a.filename).join(', ')})`);
+    text += `\n\n(Files cannot be attached to this email. Please download them from the admin panel.)`;
   }
-  console.log(`[email:console] to=${to} subject="${subject}" attachments=${attachments.length} body="${String(body).slice(0, 200)}…"`);
-  return true;
+  const payload = { from, to: String(to).trim(), subject: String(subject || '').slice(0, 500), text, html: textToHtml(text) };
+  if (cfg.MAIL_REPLY_TO) payload.replyTo = cfg.MAIL_REPLY_TO.trim();
+
+  try {
+    const res = await fetch(TATVAOS_MAIL_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(20000),
+    });
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON body */ }
+    if (res.status === 202) return { ok: true, status: 202, provider: 'TatvaOS', outcome: data.outcome };
+    const error = data.error || `HTTP ${res.status}`;
+    console.error(`[email:tatvaos] ${res.status} to=${to}: ${error}`);
+    return { ok: false, status: res.status, error, provider: 'TatvaOS' };
+  } catch (e) {
+    console.error('[email:tatvaos] request failed:', e.message);
+    return { ok: false, status: 0, error: e.name === 'TimeoutError' ? 'TatvaOS did not respond within 20 s' : e.message, provider: 'TatvaOS' };
+  }
+}
+
+/** Boolean convenience wrapper used throughout the app. */
+async function sendEmail(to, subject, body, attachments = []) {
+  return (await sendEmailDetailed(to, subject, body, attachments)).ok;
 }
 
 async function sendSms(phone, message) {
@@ -144,4 +152,4 @@ async function notifyStatusChange({ submission, applicant, status, activation, c
   await Promise.all(jobs);
 }
 
-module.exports = { notifyStatusChange, sendEmail, sendSms, renderTemplate };
+module.exports = { notifyStatusChange, sendEmail, sendEmailDetailed, sendSms, renderTemplate };

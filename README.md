@@ -39,7 +39,7 @@ npm run dev                 # http://localhost:5173  (proxies /api to :5000)
 |---|---|
 | `DB_DIALECT` | `sqlite` (default, zero-setup) or `mysql` (+ `DB_HOST/PORT/NAME/USER/PASS`) |
 | `RAZORPAY_KEY_ID/SECRET` | live payments; empty = mock payment mode |
-| `SMTP_*` | email notifications; empty = logged to server console |
+| `TATVAOS_MAIL_KEY`, `MAIL_FROM` | email via TatvaOS Mail API (set in admin → Settings); empty = logged to server console |
 | `MSG91_AUTH_KEY` | SMS via MSG91; empty = logged to server console |
 | `DEV_SHOW_OTP` | `true` shows OTP in the API response (dev only — set `false` in production) |
 | `JWT_SECRET` | change in production |

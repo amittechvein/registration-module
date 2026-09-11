@@ -38,13 +38,36 @@ sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='registration
   sudo -u postgres psql -c "CREATE DATABASE registration OWNER registration;"
 sudo -u postgres psql -c "ALTER USER registration WITH PASSWORD '$DB_PASS';" >/dev/null
 
+echo "==> Keeping PostgreSQL alive (auto-restart on crash, protected from the OOM killer)…"
+# Sep 2026: the cluster crashed and stayed down for 5 days — Ubuntu's unit has
+# no Restart= and the kernel OOM killer prefers big processes. Node (the app)
+# must be the one that dies first; Postgres restarts itself if it ever does.
+mkdir -p /etc/systemd/system/postgresql@.service.d
+cat > /etc/systemd/system/postgresql@.service.d/override.conf <<'EOF'
+[Service]
+Restart=on-failure
+RestartSec=10
+OOMScoreAdjust=-900
+EOF
+systemctl daemon-reload
+systemctl start postgresql
+for c in $(pg_lsclusters -h 2>/dev/null | awk '{print $1"-"$2}'); do systemctl start "postgresql@$c"; done
+
+echo "==> Installing backup + watchdog scripts…"
+# The repo is already updated by Deploy.cmd (git pull runs before this script),
+# so the scripts under deploy/ are current. Installed system-wide so systemd
+# units and humans can call them by name.
+if [ -f "$APP_DIR/deploy/backup.sh" ]; then
+  install -m 755 "$APP_DIR/deploy/backup.sh"   /usr/local/bin/registration-backup
+  install -m 755 "$APP_DIR/deploy/watchdog.sh" /usr/local/bin/registration-watchdog
+fi
+
 echo "==> Safety backup BEFORE updating (data protection for live forms/payments)…"
 mkdir -p /opt/backups
 if sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='registration'" | grep -q 1; then
-  sudo -u postgres pg_dump registration | gzip > "/opt/backups/pre-deploy-$(date +%Y%m%d-%H%M%S).sql.gz"
-  # keep the last 10 pre-deploy snapshots
-  ls -1t /opt/backups/pre-deploy-*.sql.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
-  echo "    Snapshot saved to /opt/backups/ (restore: gunzip -c FILE | sudo -u postgres psql registration)"
+  # A failed snapshot aborts the deploy (set -e) — never deploy without one.
+  /usr/local/bin/registration-backup pre-deploy 3
+  echo "    Restore: sudo -u postgres pg_restore -d registration --clean --if-exists --no-owner /opt/backups/FILE.dump"
 fi
 
 echo "==> Fetching application code…"
@@ -80,6 +103,7 @@ cat > /etc/systemd/system/registration.service <<EOF
 [Unit]
 Description=School Registration Portal
 After=network.target postgresql.service
+Wants=postgresql.service
 
 [Service]
 WorkingDirectory=$APP_DIR/server
@@ -95,14 +119,14 @@ systemctl daemon-reload
 systemctl enable registration
 systemctl restart registration
 
-echo "==> Installing health watchdog (auto-restarts the app if it freezes)…"
+echo "==> Installing health watchdog (restarts Postgres/app if down, warns on low disk)…"
 cat > /etc/systemd/system/registration-watchdog.service <<'EOF'
 [Unit]
 Description=Registration portal health watchdog
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'curl -sf --max-time 10 http://127.0.0.1:5000/api/health >/dev/null || { echo "health check FAILED - restarting registration"; systemctl restart registration; }'
+ExecStart=/usr/local/bin/registration-watchdog
 EOF
 cat > /etc/systemd/system/registration-watchdog.timer <<'EOF'
 [Unit]
@@ -118,14 +142,14 @@ EOF
 systemctl daemon-reload
 systemctl enable --now registration-watchdog.timer
 
-echo "==> Installing nightly database backup (2:30 AM IST, keeps 14 days)…"
+echo "==> Installing nightly database backup (2:30 AM IST, keeps 7 good dumps; emails Owners on failure)…"
 cat > /etc/systemd/system/registration-backup.service <<'EOF'
 [Unit]
 Description=Nightly registration database backup
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'mkdir -p /opt/backups && sudo -u postgres pg_dump registration | gzip > /opt/backups/nightly-$(date +%%Y%%m%%d).sql.gz && ls -1t /opt/backups/nightly-*.sql.gz | tail -n +15 | xargs -r rm -f'
+ExecStart=/usr/local/bin/registration-backup nightly 7
 EOF
 cat > /etc/systemd/system/registration-backup.timer <<'EOF'
 [Unit]

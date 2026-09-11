@@ -11,12 +11,12 @@ const GROUPS = [
     hint: 'Infobip is used when username & password are set. The OTP template must exactly match your DLT-registered template ({{otp}} is replaced with the code). Turn OFF "Show OTP on screen" before going live.',
   },
   {
-    id: 'email', title: 'Email',
-    hint: 'RECOMMENDED: create a free account at brevo.com (300 emails/day) → Settings → SMTP & API → API Keys → paste the key below — this works even when the server\'s SMTP ports are blocked. The From Address must be a verified sender in Brevo. SMTP fields are the fallback if you prefer your own mail server.',
+    id: 'email', title: 'Email (TatvaOS Mail)',
+    hint: 'All emails (status notifications, messages to applicants, daily Owner report, server alerts) are sent through the TatvaOS Mail API. Get the key from TatvaOS admin → Organisation → API keys (it is shown once — if lost, revoke and create a new one). The From Address must be a mailbox on a domain verified in TatvaOS (e.g. admissions@techvein.com — a plain address, no display name). Attachments are not supported by TatvaOS: the daily report links to the Excel instead.',
   },
   {
     id: 'reports', title: 'Daily Report to Owners',
-    hint: 'Every day at the chosen time (IST), all active users with Role: Owner receive an email with a summary of every active form (submissions, last-24h count, fees collected, status breakdown) and the complete submissions Excel attached. Requires Email to be configured above.',
+    hint: 'Every day at the chosen time (IST), all active users with Role: Owner receive an email with a summary of every active form (submissions, last-24h count, fees collected, status breakdown) and a secure link (valid 3 days) to download the complete submissions Excel. Requires Email to be configured above.',
   },
   {
     id: 'auth', title: 'Login Options (Google Sign-In)',
@@ -133,7 +133,8 @@ export default function Settings() {
                   <input
                     type={i.secret ? 'password' : 'text'}
                     value={values[i.key] || ''}
-                    placeholder={i.secret ? (i.isSet ? 'saved — type to replace' : '') : ''}
+                    placeholder={i.secret ? (i.isSet ? 'saved — type to replace' : (i.key === 'TATVAOS_MAIL_KEY' ? 'tvos_…' : '')) : (i.key === 'MAIL_FROM' ? 'admissions@your-domain.com' : i.key === 'MAIL_REPLY_TO' ? 'same as From if empty' : '')}
+                    autoComplete="off"
                     onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}
                   />
                 )}

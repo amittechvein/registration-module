@@ -61,12 +61,30 @@ export default function Submissions() {
   const chosenActivation = activations.find((a) => String(a.id) === String(f.activationId));
   const statusOptions = chosenActivation ? chosenActivation.statuses : [...new Map(activations.flatMap((a) => a.statuses).map((s) => [s.name, s])).values()];
 
+  const [bulkBusy, setBulkBusy] = useState(false);
   const applyBulk = async () => {
-    if (!bulkStatus || !sel.length) return;
+    if (!bulkStatus || !sel.length || bulkBusy) return;
+    const statusName = statusOptions.find((s) => String(s.id) === String(bulkStatus))?.name || 'new status';
+    setBulkBusy(true); setErr('');
+    setBulkNote(`Applying "${statusName}" to ${sel.length} submission(s)…`);
     try {
-      await adminApi.post('/submissions/bulk-status', { ids: sel, statusId: bulkStatus });
-      load();
-    } catch (e) { setErr(errMsg(e)); }
+      const { data } = await adminApi.post('/submissions/bulk-status', { ids: sel, statusId: bulkStatus });
+      const results = Array.isArray(data) ? data : [];
+      const failed = results.filter((r) => r.error);
+      const warned = results.filter((r) => !r.error && r.warning);
+      const okCount = results.length - failed.length;
+      const formNo = (id) => rows.find((r) => String(r.id) === String(id))?.formNo || `#${id}`;
+      const parts = [];
+      if (okCount) parts.push(`✅ ${okCount} set to "${statusName}"`);
+      if (warned.length) parts.push(`⚠ ${warned.length} updated but notification failed (${warned.map((r) => `${formNo(r.id)}: ${r.warning}`).join('; ')})`);
+      if (failed.length) parts.push(`❌ ${failed.length} failed — ${failed.map((r) => `${formNo(r.id)}: ${r.error}`).join('; ')}`);
+      setBulkNote(parts.join('  ·  ') || '❌ Server returned no results');
+      setBulkStatus('');
+      await load();
+    } catch (e) {
+      setBulkNote('❌ Status change failed: ' + errMsg(e));
+    }
+    setBulkBusy(false);
   };
 
   return (
@@ -212,7 +230,7 @@ export default function Submissions() {
                   <option value="">Change status to…</option>
                   {(chosenActivation ? chosenActivation.statuses : []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
-                <button className="btn" onClick={applyBulk} disabled={!bulkStatus}>Apply Status</button>
+                <button className="btn" onClick={applyBulk} disabled={!bulkStatus || bulkBusy}>{bulkBusy ? 'Applying…' : 'Apply Status'}</button>
                 {!chosenActivation && <span className="muted">Select a specific Form in the filter to enable bulk status change</span>}
               </>
             )}
@@ -267,6 +285,13 @@ export default function Submissions() {
               <span className="muted" style={{ width: '100%' }}>Always appears in each applicant's portal thread; tick SMS/Email to also deliver there.</span>
             </div>
           )}
+        </div>
+      )}
+      {/* After a bulk status change the selection is cleared (card above unmounts) — keep the result visible */}
+      {sel.length === 0 && bulkNote && (
+        <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span>{bulkNote}</span>
+          <button className="btn small ghost" onClick={() => setBulkNote('')} style={{ marginLeft: 'auto' }}>dismiss</button>
         </div>
       )}
 

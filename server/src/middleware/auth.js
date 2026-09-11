@@ -5,6 +5,11 @@ function sign(payload) {
   return jwt.sign(payload, SECRET, { expiresIn: '7d' });
 }
 
+/** Sign with a custom lifetime (e.g. '3d') — used for links sent by email. */
+function signFor(payload, expiresIn) {
+  return jwt.sign(payload, SECRET, { expiresIn });
+}
+
 /** Verify a token signed with sign() — throws if invalid/expired. */
 function verify(token) {
   return jwt.verify(token, SECRET);
@@ -45,4 +50,4 @@ function applicantAuth(req, res, next) {
   }
 }
 
-module.exports = { sign, verify, adminAuth, applicantAuth, requirePerm };
+module.exports = { sign, signFor, verify, adminAuth, applicantAuth, requirePerm };
