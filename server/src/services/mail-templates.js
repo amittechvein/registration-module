@@ -20,6 +20,9 @@ const DEFAULT_TEMPLATES = [
     title: 'Provisional Admission Notice',
     statuses: ['Selected', 'Shortlisted', 'Provisionally Admitted'],
     portal: false,
+    tone: 'success',
+    portalHeading: '🎉 Congratulations!',
+    portalMessage: 'Your child has been selected for provisional admission in NIRMALA CONVENT SCHOOL, SILIGURI.\nClick below to download the notice.',
     subject: 'Provisional admission — Form No {{form_no}} — {{school}}',
     html: [
       '<p><b>Dear Parent,</b></p>',
@@ -43,6 +46,9 @@ const DEFAULT_TEMPLATES = [
     title: 'Admission Result',
     statuses: ['Not Selected', 'Rejected', 'Waitlisted'],
     portal: false,
+    tone: 'regret',
+    portalHeading: 'Admission Result',
+    portalMessage: 'Regret to inform you that your child is NOT SELECTED for admission to Class {{class}} for the academic session {{session}}.\nClick below to check the notice.',
     subject: 'Admission result — Form No {{form_no}} — {{school}}',
     html: [
       '<p><b>Dear Parent,</b></p>',
@@ -61,6 +67,9 @@ const SANITIZE = {
 };
 
 function clean(t) {
+  // Templates saved before a field existed inherit the built-in default for that id
+  const base = DEFAULT_TEMPLATES.find((d) => d.id === t.id) || {};
+  t = { ...base, ...Object.fromEntries(Object.entries(t).filter(([, v]) => v !== undefined && v !== null)) };
   return {
     id: String(t.id || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || `tpl-${Date.now()}`,
     name: String(t.name || '').trim().slice(0, 120) || 'Untitled template',
@@ -72,6 +81,22 @@ function clean(t) {
     statuses: Array.isArray(t.statuses) ? [...new Set(t.statuses.map((x) => String(x).trim()).filter(Boolean))].slice(0, 30) : [],
     // Show as a downloadable Notice PDF on the parent's Track page when their status matches
     portal: t.portal === true || t.portal === 'true',
+    // Popup shown on the parent's Track page (plain text; {{placeholders}} allowed; newlines kept)
+    tone: ['success', 'regret', 'info'].includes(t.tone) ? t.tone : 'info',
+    portalHeading: String(t.portalHeading || '').trim().slice(0, 120),
+    portalMessage: String(t.portalMessage || '').trim().slice(0, 1000),
+  };
+}
+
+/** What the parent's Track page shows for this template + submission (null if not published). */
+function portalNoticeFor(tpl, sub) {
+  if (!tpl || !tpl.portal) return null;
+  const vars = varsFor(sub, '');
+  return {
+    title: fill(tpl.title, vars, false),
+    tone: tpl.tone,
+    heading: fill(tpl.portalHeading, vars, false) || fill(tpl.title, vars, false),
+    message: fill(tpl.portalMessage, vars, false),
   };
 }
 
@@ -171,4 +196,4 @@ function unresolved(str) {
   return [...String(str).matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]);
 }
 
-module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, templateForStatus, noticeFor, DEFAULT_TEMPLATES };
+module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, templateForStatus, noticeFor, portalNoticeFor, DEFAULT_TEMPLATES };

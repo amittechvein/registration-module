@@ -472,7 +472,7 @@ router.get('/my-submissions', async (req, res) => {
   const mt = require('../services/mail-templates');
   const templates = await mt.listTemplates();
   res.json(rows.map((r) => ({
-    notice: (() => { const t = !r.isDraft && r.formNo && r.status ? mt.templateForStatus(templates, r.status.name) : null; return t && t.portal ? { title: t.title } : null; })(),
+    notice: !r.isDraft && r.formNo && r.status ? mt.portalNoticeFor(mt.templateForStatus(templates, r.status.name), r) : null,
     id: r.id, formNo: r.formNo, isDraft: r.isDraft, paymentStatus: r.paymentStatus, amount: r.amount,
     submittedAt: r.submittedAt, form: r.activation?.title, slug: r.activation?.slug,
     className: r.activation?.classRoom?.name, session: r.activation?.session?.name,

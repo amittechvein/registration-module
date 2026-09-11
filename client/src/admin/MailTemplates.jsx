@@ -46,7 +46,7 @@ export default function MailTemplates() {
   };
   const add = () => {
     const id = `tpl-${Date.now().toString(36)}`;
-    setList((l) => [...l, { id, name: 'New template', title: 'Notice', statuses: [], portal: false, subject: 'Regarding your application — Form No {{form_no}}', html: '<p><b>Dear Parent,</b></p><p><b>FORM NO: {{form_no}}</b></p><p>…</p><p>Best Regards,<br>(Nirmala Convent School)</p>' }]);
+    setList((l) => [...l, { id, name: 'New template', title: 'Notice', statuses: [], portal: false, tone: 'info', portalHeading: '', portalMessage: '', subject: 'Regarding your application — Form No {{form_no}}', html: '<p><b>Dear Parent,</b></p><p><b>FORM NO: {{form_no}}</b></p><p>…</p><p>Best Regards,<br>(Nirmala Convent School)</p>' }]);
     setCur(list.length);
   };
   const remove = () => {
@@ -108,6 +108,24 @@ export default function MailTemplates() {
               <label className="fld" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22 }}>
                 <input type="checkbox" checked={!!t.portal} onChange={(e) => patch({ portal: e.target.checked })} disabled={!canEdit} />
                 Show on parent Track page as a downloadable Notice (PDF) when their status matches
+              </label>
+            </div>
+            <div className="card" style={{ background: '#f8fafc', marginTop: 4 }}>
+              <b>Parent Track page popup</b> <span className="muted">— shown when "Show on parent Track page" is on and the status matches. Placeholders work here too.</span>
+              <div className="grid cols-3" style={{ marginTop: 8 }}>
+                <label className="fld">Popup heading
+                  <input type="text" value={t.portalHeading || ''} onChange={(e) => patch({ portalHeading: e.target.value })} disabled={!canEdit} placeholder="🎉 Congratulations!" />
+                </label>
+                <label className="fld">Tone (colour)
+                  <select value={t.tone || 'info'} onChange={(e) => patch({ tone: e.target.value })} disabled={!canEdit}>
+                    <option value="success">Success — green (selected)</option>
+                    <option value="regret">Regret — grey/red (not selected)</option>
+                    <option value="info">Neutral — blue</option>
+                  </select>
+                </label>
+              </div>
+              <label className="fld">Popup message
+                <textarea rows={3} value={t.portalMessage || ''} onChange={(e) => patch({ portalMessage: e.target.value })} disabled={!canEdit} placeholder="Your child has been selected … Click below to download the notice." />
               </label>
             </div>
             <div className="fld">

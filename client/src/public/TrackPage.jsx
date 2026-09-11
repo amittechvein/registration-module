@@ -12,6 +12,14 @@ export default function TrackPage() {
   const [msgs, setMsgs] = useState({});
   // null = not known yet, true = open, string = closed (the message to show)
   const [closed, setClosed] = useState(null);
+  const [popup, setPopup] = useState(null); // submission whose result popup is open
+  const TONE = {
+    success: { bg: '#f0fdf4', border: '#16a34a', color: '#166534', btn: '#16a34a' },
+    regret: { bg: '#fff7ed', border: '#ea580c', color: '#7c2d12', btn: '#ea580c' },
+    info: { bg: '#eff6ff', border: '#2563eb', color: '#1e3a8a', btn: '#2563eb' },
+  };
+  const toneOf = (n) => TONE[n?.tone] || TONE.info;
+  const downloadNotice = (s) => downloadBlob(`/api/public/my-submissions/${s.id}/notice`, `notice-${s.formNo}.pdf`, 'applicantToken');
   useEffect(() => {
     publicApi.get('/school-info')
       .then((r) => setClosed(r.data.trackEnabled === false ? (r.data.trackClosedMessage || 'Application tracking is temporarily unavailable.') : false))
@@ -19,7 +27,12 @@ export default function TrackPage() {
   }, []);
 
   const load = () =>
-    publicApi.get('/my-submissions').then((r) => setSubs(r.data)).catch((e) => {
+    publicApi.get('/my-submissions').then((r) => {
+      setSubs(r.data);
+      // result popup: first application that has a published notice
+      const withNotice = r.data.find((x) => x.notice);
+      setPopup((p) => (p === undefined ? p : withNotice || null));
+    }).catch((e) => {
       if (e.response?.status === 401) setLoggedIn(false);
       else if (e.response?.data?.trackingClosed) setClosed(e.response.data.error);
       else setErr(errMsg(e));
@@ -59,6 +72,22 @@ export default function TrackPage() {
       )}
       {err && !closed && <div className="alert err">{err}</div>}
       {closed === false && !loggedIn && <OtpLogin askProfile={false} onLoggedIn={() => setLoggedIn(true)} />}
+      {closed === false && loggedIn && popup && popup.notice && (
+        <div onClick={() => setPopup(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true"
+            style={{ background: '#fff', borderRadius: 14, maxWidth: 520, width: '100%', padding: '22px 24px', boxShadow: '0 20px 60px rgba(0,0,0,.3)', borderTop: `6px solid ${toneOf(popup.notice).border}` }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: toneOf(popup.notice).color }}>{popup.notice.heading}</div>
+            <div className="muted" style={{ margin: '4px 0 12px' }}>Form No: <b>{popup.formNo}</b> · {popup.form}</div>
+            <div style={{ whiteSpace: 'pre-line', fontSize: 15, lineHeight: 1.5 }}>{popup.notice.message}</div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+              <button className="btn" style={{ background: toneOf(popup.notice).btn, borderColor: toneOf(popup.notice).btn }} onClick={() => downloadNotice(popup)}>
+                📄 Download {popup.notice.title || 'Notice'} (PDF)
+              </button>
+              <button className="btn ghost" onClick={() => setPopup(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
       {closed === false && loggedIn && (
         <>
           {subs.map((s) => (
@@ -90,6 +119,12 @@ export default function TrackPage() {
                 </div>
               )}
 
+              {!s.isDraft && s.notice && (
+                <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: toneOf(s.notice).bg, border: `1px solid ${toneOf(s.notice).border}`, color: toneOf(s.notice).color }}>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{s.notice.heading}</div>
+                  <div style={{ whiteSpace: 'pre-line', marginTop: 4 }}>{s.notice.message}</div>
+                </div>
+              )}
               {!s.isDraft && (
                 <>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
@@ -97,7 +132,7 @@ export default function TrackPage() {
                       ⬇ Download Form (PDF)
                     </button>
                     {s.notice && (
-                      <button className="btn" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/notice`, `notice-${s.formNo}.pdf`, 'applicantToken')}>
+                      <button className="btn" style={{ background: toneOf(s.notice).btn, borderColor: toneOf(s.notice).btn }} onClick={() => downloadNotice(s)}>
                         📄 {s.notice.title || 'Notice'} (PDF)
                       </button>
                     )}
