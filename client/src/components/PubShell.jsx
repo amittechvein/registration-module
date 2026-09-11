@@ -21,7 +21,7 @@ export default function PubShell({ children }) {
         </Link>
         <div className="pub-nav-links">
           <Link to="/" className={loc.pathname === '/' ? 'on' : ''}>Forms</Link>
-          <Link to="/track" className={loc.pathname === '/track' ? 'on' : ''}>Track Application</Link>
+          {school.trackEnabled !== false && <Link to="/track" className={loc.pathname === '/track' ? 'on' : ''}>Track Application</Link>}
         </div>
       </nav>
 

@@ -53,10 +53,23 @@ router.get('/forms/:slug', async (req, res) => {
 });
 
 // School identity for the portal chrome
-router.get('/school-info', (_req, res) => {
+/** Is the parent "Track Application" page open? (admin → Settings → Parent Tracking) */
+async function trackingState() {
+  const { getConfig } = require('../services/settings');
+  const cfg = await getConfig();
+  const enabled = String(cfg.TRACK_ENABLED ?? 'true') !== 'false';
+  const message = (cfg.TRACK_CLOSED_MESSAGE || '').trim()
+    || 'Application tracking is temporarily unavailable. Please check back later — you can still apply and pay for open forms.';
+  return { enabled, message };
+}
+
+router.get('/school-info', async (_req, res) => {
+  const track = await trackingState();
   res.json({
     name: process.env.SCHOOL_NAME || 'Nirmala Convent School, Siliguri',
     address: process.env.SCHOOL_ADDRESS || '3rd Mile, Sevoke Road, Ward 42, Siliguri, West Bengal 734008',
+    trackEnabled: track.enabled,
+    trackClosedMessage: track.enabled ? '' : track.message,
   });
 });
 
@@ -435,6 +448,15 @@ router.post('/forms/:slug/payment/verify', async (req, res) => {
 });
 
 // ---------- Track my applications ----------
+// Track page data — blocked server-side while tracking is closed (the page
+// hides the login too, but the API must not rely on that). Form filling,
+// drafts, submit and payment verify are untouched.
+router.use('/my-submissions', async (_req, res, next) => {
+  const track = await trackingState();
+  if (!track.enabled) return res.status(403).json({ error: track.message, trackingClosed: true });
+  next();
+});
+
 router.get('/my-submissions', async (req, res) => {
   const rows = await Submission.findAll({
     where: { applicantId: req.applicant.id },

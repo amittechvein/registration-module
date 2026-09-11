@@ -10,10 +10,18 @@ export default function TrackPage() {
   const [subs, setSubs] = useState([]);
   const [err, setErr] = useState('');
   const [msgs, setMsgs] = useState({});
+  // null = not known yet, true = open, string = closed (the message to show)
+  const [closed, setClosed] = useState(null);
+  useEffect(() => {
+    publicApi.get('/school-info')
+      .then((r) => setClosed(r.data.trackEnabled === false ? (r.data.trackClosedMessage || 'Application tracking is temporarily unavailable.') : false))
+      .catch(() => setClosed(false));
+  }, []);
 
   const load = () =>
     publicApi.get('/my-submissions').then((r) => setSubs(r.data)).catch((e) => {
       if (e.response?.status === 401) setLoggedIn(false);
+      else if (e.response?.data?.trackingClosed) setClosed(e.response.data.error);
       else setErr(errMsg(e));
     });
   useEffect(() => { if (loggedIn) load(); }, [loggedIn]); // eslint-disable-line
@@ -39,9 +47,19 @@ export default function TrackPage() {
           </div>
         </div>
       </div>
-      {err && <div className="alert err">{err}</div>}
-      {!loggedIn && <OtpLogin askProfile={false} onLoggedIn={() => setLoggedIn(true)} />}
-      {loggedIn && (
+      {closed && (
+        <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 28 }}>⏸️</div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <b>Tracking is temporarily closed</b>
+            <div className="muted" style={{ marginTop: 4 }}>{closed}</div>
+          </div>
+          <Link className="btn" to="/">Browse open forms →</Link>
+        </div>
+      )}
+      {err && !closed && <div className="alert err">{err}</div>}
+      {closed === false && !loggedIn && <OtpLogin askProfile={false} onLoggedIn={() => setLoggedIn(true)} />}
+      {closed === false && loggedIn && (
         <>
           {subs.map((s) => (
             <div className="card" key={s.id}>

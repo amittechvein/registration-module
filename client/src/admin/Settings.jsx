@@ -15,6 +15,10 @@ const GROUPS = [
     hint: 'All emails (status notifications, messages to applicants, daily Owner report, server alerts) are sent through the TatvaOS Mail API. Get the key from TatvaOS admin → Organisation → API keys (it is shown once — if lost, revoke and create a new one). The From Address must be a mailbox on a domain verified in TatvaOS (e.g. admissions@techvein.com — a plain address, no display name). Attachments are not supported by TatvaOS: the daily report links to the Excel instead.',
   },
   {
+    id: 'tracking', title: 'Parent Tracking Page',
+    hint: 'Switch the parent "Track Application" page OFF to block tracking logins temporarily (e.g. while results are being finalised). The link disappears from the portal, the page shows your message, and the tracking API is blocked. Applying, paying and continuing drafts keep working. Switch back ON any time — no deploy needed.',
+  },
+  {
     id: 'reports', title: 'Daily Report to Owners',
     hint: 'Every day at the chosen time (IST), all active users with Role: Owner receive an email with a summary of every active form (submissions, last-24h count, fees collected, status breakdown) and a secure link (valid 3 days) to download the complete submissions Excel. Requires Email to be configured above.',
   },
@@ -124,6 +128,11 @@ export default function Settings() {
                     <option value="true">ON — send every day</option>
                     <option value="false">OFF — do not send</option>
                   </select>
+                ) : i.key === 'TRACK_ENABLED' ? (
+                  <select value={values[i.key] || 'true'} onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}>
+                    <option value="true">OPEN — parents can log in and track</option>
+                    <option value="false">CLOSED — tracking login blocked</option>
+                  </select>
                 ) : i.key === 'DEV_SHOW_OTP' ? (
                   <select value={values[i.key] || 'true'} onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}>
                     <option value="true">ON — show OTP on screen (testing)</option>
@@ -133,7 +142,7 @@ export default function Settings() {
                   <input
                     type={i.secret ? 'password' : 'text'}
                     value={values[i.key] || ''}
-                    placeholder={i.secret ? (i.isSet ? 'saved — type to replace' : (i.key === 'TATVAOS_MAIL_KEY' ? 'tvos_…' : '')) : (i.key === 'MAIL_FROM' ? 'admissions@your-domain.com' : i.key === 'MAIL_REPLY_TO' ? 'same as From if empty' : '')}
+                    placeholder={i.secret ? (i.isSet ? 'saved — type to replace' : (i.key === 'TATVAOS_MAIL_KEY' ? 'tvos_…' : '')) : (i.key === 'MAIL_FROM' ? 'admissions@your-domain.com' : i.key === 'MAIL_REPLY_TO' ? 'same as From if empty' : i.key === 'TRACK_CLOSED_MESSAGE' ? 'Application tracking is temporarily unavailable. Please check back later.' : '')}
                     autoComplete="off"
                     onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}
                   />

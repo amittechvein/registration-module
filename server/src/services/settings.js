@@ -25,6 +25,9 @@ const SETTING_DEFS = [
   { key: 'TATVAOS_MAIL_KEY', group: 'email', label: 'TatvaOS API Key (tvos_…)', secret: true },
   { key: 'MAIL_FROM', group: 'email', label: 'From Address (a mailbox on your verified domain)', secret: false },
   { key: 'MAIL_REPLY_TO', group: 'email', label: 'Reply-To Address (optional)', secret: false },
+  // Parent portal — Track Application page
+  { key: 'TRACK_ENABLED', group: 'tracking', label: 'Track Application page', secret: false },
+  { key: 'TRACK_CLOSED_MESSAGE', group: 'tracking', label: 'Message shown to parents while closed', secret: false },
   // Daily report to Owners
   { key: 'REPORT_ENABLED', group: 'reports', label: 'Send daily report', secret: false },
   { key: 'REPORT_TIME', group: 'reports', label: 'Send time (IST, 24h e.g. 08:00)', secret: false },
