@@ -15,13 +15,22 @@ const PLACEHOLDERS = [
 
 export default function MailTemplates() {
   const [list, setList] = useState([]);
+  const [statusNames, setStatusNames] = useState([]);
   const [cur, setCur] = useState(0);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const canEdit = hasPerm('settings');
 
   const load = () => adminApi.get('/mail-templates').then((r) => { setList(r.data); setCur((c) => Math.min(c, Math.max(0, r.data.length - 1))); });
-  useEffect(() => { load().catch((e) => setMsg({ type: 'err', text: errMsg(e) })); }, []);
+  useEffect(() => {
+    load().catch((e) => setMsg({ type: 'err', text: errMsg(e) }));
+    // every status name used by any form, for the "applies to statuses" picker
+    adminApi.get('/activations').then((r) => setStatusNames([...new Set(r.data.flatMap((a) => (a.statuses || []).map((st) => st.name)))].sort())).catch(() => {});
+  }, []);
+  const toggleStatus = (name) => {
+    const cur = t?.statuses || [];
+    patch({ statuses: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] });
+  };
 
   const t = list[cur];
   const patch = (chg) => setList((l) => l.map((x, i) => (i === cur ? { ...x, ...chg } : x)));
@@ -37,7 +46,7 @@ export default function MailTemplates() {
   };
   const add = () => {
     const id = `tpl-${Date.now().toString(36)}`;
-    setList((l) => [...l, { id, name: 'New template', subject: 'Regarding your application — Form No {{form_no}}', html: '<p><b>Dear Parent,</b></p><p><b>FORM NO: {{form_no}}</b></p><p>…</p><p>Best Regards,<br>(Nirmala Convent School)</p>' }]);
+    setList((l) => [...l, { id, name: 'New template', title: 'Notice', statuses: [], portal: false, subject: 'Regarding your application — Form No {{form_no}}', html: '<p><b>Dear Parent,</b></p><p><b>FORM NO: {{form_no}}</b></p><p>…</p><p>Best Regards,<br>(Nirmala Convent School)</p>' }]);
     setCur(list.length);
   };
   const remove = () => {
@@ -55,7 +64,7 @@ export default function MailTemplates() {
       <div className="topbar">
         <div>
           <h1>Email Templates</h1>
-          <div className="muted">Letters sent to selected applicants from Submissions — e.g. provisional admission, not selected.</div>
+          <div className="muted">Letters for applicants — emailed from Submissions, downloaded as per-student Notice PDFs, and (if published) shown to parents on the Track page.</div>
         </div>
         {canEdit && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -92,7 +101,27 @@ export default function MailTemplates() {
                 <input type="text" value={t.subject} onChange={(e) => patch({ subject: e.target.value })} disabled={!canEdit} />
               </label>
             </div>
-            <label className="fld">Email body
+            <div className="grid cols-2">
+              <label className="fld">Notice PDF heading
+                <input type="text" value={t.title || ''} onChange={(e) => patch({ title: e.target.value })} disabled={!canEdit} placeholder="e.g. Provisional Admission Notice" />
+              </label>
+              <label className="fld" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22 }}>
+                <input type="checkbox" checked={!!t.portal} onChange={(e) => patch({ portal: e.target.checked })} disabled={!canEdit} />
+                Show on parent Track page as a downloadable Notice (PDF) when their status matches
+              </label>
+            </div>
+            <div className="fld">
+              <span>Applies to statuses — used for "Notices PDF (by status)" and the parent Track page</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                {[...new Set([...statusNames, ...(t.statuses || [])])].map((name) => (
+                  <label key={name} className={`pill ${(t.statuses || []).includes(name) ? 'on' : ''}`} style={{ cursor: canEdit ? 'pointer' : 'default', padding: '5px 10px' }}>
+                    <input type="checkbox" style={{ marginRight: 6 }} checked={(t.statuses || []).includes(name)} onChange={() => toggleStatus(name)} disabled={!canEdit} />{name}
+                  </label>
+                ))}
+                {!statusNames.length && <span className="muted">No statuses found — define statuses under Active Forms first.</span>}
+              </div>
+            </div>
+            <label className="fld">Email body / notice text
               {canEdit
                 ? <RichTextEditor value={t.html} onChange={(html) => patch({ html })} placeholder="Dear Parent, …" />
                 : <div className="rte-body" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10 }} dangerouslySetInnerHTML={{ __html: t.html }} />}

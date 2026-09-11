@@ -8,9 +8,25 @@
 const { parentPort } = require('worker_threads');
 const PDFDocument = require('pdfkit');
 const { drawSubmissionPdf } = require('./pdf');
+const { drawNoticePdf } = require('./pdf-notice');
 
-parentPort.on('message', ({ subs }) => {
+parentPort.on('message', ({ subs, notices }) => {
   try {
+    // Notice mode: one separate PDF per notice, returned as an array of buffers.
+    if (notices) {
+      const bufs = [];
+      let done = 0;
+      notices.forEach((n, i) => {
+        const doc = new PDFDocument({ size: 'A4', margins: { top: 36, bottom: 36, left: 48, right: 48 } });
+        const chunks = [];
+        doc.on('data', (c) => chunks.push(c));
+        doc.on('end', () => { bufs[i] = Buffer.concat(chunks); if (++done === notices.length) parentPort.postMessage({ ok: true, bufs }); });
+        drawNoticePdf(doc, n);
+        doc.end();
+      });
+      if (!notices.length) parentPort.postMessage({ ok: true, bufs: [] });
+      return;
+    }
     // Buffers become Uint8Array across the thread boundary — restore them so
     // doc.image() accepts attachment photos/signatures.
     for (const s of subs) {

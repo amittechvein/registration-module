@@ -468,7 +468,11 @@ router.get('/my-submissions', async (req, res) => {
     ],
     order: [['updatedAt', 'DESC']],
   });
+  // Notice PDF available when a template is linked to the status AND published to the portal
+  const mt = require('../services/mail-templates');
+  const templates = await mt.listTemplates();
   res.json(rows.map((r) => ({
+    notice: (() => { const t = !r.isDraft && r.formNo && r.status ? mt.templateForStatus(templates, r.status.name) : null; return t && t.portal ? { title: t.title } : null; })(),
     id: r.id, formNo: r.formNo, isDraft: r.isDraft, paymentStatus: r.paymentStatus, amount: r.amount,
     submittedAt: r.submittedAt, form: r.activation?.title, slug: r.activation?.slug,
     className: r.activation?.classRoom?.name, session: r.activation?.session?.name,
@@ -501,6 +505,38 @@ router.get('/my-submissions/:id/pdf', async (req, res) => {
   const buf = await renderPdfBuffer([s.toJSON()], { timeoutMs: 20000, label: `form ${s.formNo || '#' + s.id}` });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="application-${s.formNo || s.id}.pdf"`);
+  res.send(buf);
+});
+
+// Notice / result letter for the parent — only when the school has published
+// the template for this status to the portal (Email Templates → "Show on Track page").
+router.get('/my-submissions/:id/notice', async (req, res) => {
+  const s = await Submission.findOne({
+    where: { id: req.params.id, applicantId: req.applicant.id },
+    include: [
+      { model: FormActivation, as: 'activation', include: [
+        { model: ClassRoom, as: 'classRoom' }, { model: AcademicSession, as: 'session' },
+        { model: FormTemplate, as: 'template', include: [{ model: FormSection, as: 'sections', separate: true, include: [{ model: FormField, as: 'fields', separate: true }] }] },
+      ]},
+      { model: Applicant, as: 'applicant' },
+      { model: FormStatus, as: 'status' },
+    ],
+  });
+  if (!s || s.isDraft || !s.formNo) return res.status(404).json({ error: 'Not found' });
+  const mt = require('../services/mail-templates');
+  const tpl = mt.templateForStatus(await mt.listTemplates(), s.status?.name);
+  if (!tpl || !tpl.portal) return res.status(404).json({ error: 'No notice is available for this application yet' });
+  let studentName = '';
+  try {
+    const d = JSON.parse(s.data || '{}');
+    const fields = (s.activation?.template?.sections || []).flatMap((sec) => sec.fields || []);
+    const fn = fields.find((f) => f.studentField === 'firstName'), ln = fields.find((f) => f.studentField === 'lastName');
+    studentName = [fn && d[fn.id], ln && d[ln.id]].filter((x) => x && typeof x !== 'object').join(' ');
+  } catch {}
+  const { renderNoticePdfs } = require('../services/pdf-render');
+  const [buf] = await renderNoticePdfs([mt.noticeFor(tpl, s, studentName)], { timeoutMs: 20000, label: `notice ${s.formNo}` });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="notice-${String(s.formNo).replace(/[^\w.-]+/g, '-')}.pdf"`);
   res.send(buf);
 });
 

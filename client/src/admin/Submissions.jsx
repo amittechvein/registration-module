@@ -269,6 +269,11 @@ export default function Submissions() {
                 {bulkActivation && !chosenActivation && <span className="muted">Statuses of: {bulkActivation.title}</span>}
               </>
             )}
+            {hasPerm('export') && (
+              <button className="btn ghost" onClick={() => downloadBlob(`/api/admin/export/notices.zip?ids=${sel.join(',')}`, 'notices-by-status.zip')} title="One separate PDF per ticked student, using the template linked to each student's status (Email Templates → Applies to statuses); zipped in status folders">
+                📄 Notices PDF by status ({sel.length})
+              </button>
+            )}
             {hasPerm('communicate') && (
               <button className="btn ghost" onClick={() => setMailIds([...sel])} title="Send a formatted letter (e.g. Selected / Not selected) to the ticked applicants only">
                 📧 Send Email ({sel.length})

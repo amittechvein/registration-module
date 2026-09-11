@@ -988,6 +988,63 @@ router.post('/submissions/mail-send', requirePerm('communicate'), async (req, re
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ---------- Notice PDFs (one separate PDF per student, by status or chosen template) ----------
+function safeName(s) { return String(s || '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'notice'; }
+
+/** Pick the template for each selected submission: explicit templateId, else by its status. */
+async function noticesFor(ids, templateId) {
+  const list = await mailTemplates.listTemplates();
+  const forced = templateId ? list.find((t) => t.id === templateId) : null;
+  if (templateId && !forced) throw new Error('Template not found');
+  const rows = await loadForMail(ids);
+  const statusById = new Map();
+  const statusIds = [...new Set(rows.map(({ sub }) => sub.statusId).filter(Boolean))];
+  if (statusIds.length) for (const st of await FormStatus.findAll({ where: { id: statusIds } })) statusById.set(st.id, st.name);
+  return rows.map(({ sub, studentName }) => {
+    const statusName = statusById.get(sub.statusId) || '';
+    const tpl = forced || mailTemplates.templateForStatus(list, statusName);
+    if (sub.isDraft || !sub.formNo) return { sub, statusName, skipped: 'draft / no form number' };
+    if (!tpl) return { sub, statusName, skipped: `no template linked to status "${statusName || '—'}"` };
+    return { sub, statusName, tpl, notice: mailTemplates.noticeFor(tpl, sub, studentName) };
+  });
+}
+
+// One student's notice as PDF (?templateId= to force a template instead of status mapping)
+router.get('/submissions/:id/notice.pdf', requirePerm('export'), async (req, res) => {
+  try {
+    const [item] = await noticesFor([req.params.id], req.query.templateId || '');
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    if (item.skipped) return res.status(400).json({ error: `Cannot generate notice: ${item.skipped}` });
+    const { renderNoticePdfs } = require('../services/pdf-render');
+    const [buf] = await renderNoticePdfs([item.notice], { timeoutMs: 20000, label: `notice ${item.notice.formNo}` });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="notice-${safeName(item.notice.formNo)}.pdf"`);
+    res.send(buf);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ZIP of separate notice PDFs for the selected submissions, foldered by status:
+//   <status>/<formNo>.pdf   plus  _skipped.txt listing anything without a template
+router.get('/export/notices.zip', requirePerm('export'), async (req, res) => {
+  try {
+    const ids = String(req.query.ids || '').split(',').map((x) => Number(x)).filter(Number.isFinite);
+    const items = await noticesFor(ids, req.query.templateId || '');
+    const todo = items.filter((i) => i.notice);
+    if (!todo.length) return res.status(400).json({ error: 'None of the selected submissions has a notice template for its status. Link statuses to templates under Email Templates, or choose a template.' });
+    const { renderNoticePdfs } = require('../services/pdf-render');
+    const { zipBuffer } = require('../services/zip');
+    const bufs = await renderNoticePdfs(todo.map((i) => i.notice), { timeoutMs: Math.min(55000, 10000 + todo.length * 400), label: `${todo.length} notices` });
+    const entries = todo.map((i, k) => ({ name: `${safeName(i.statusName || 'no-status')}/${safeName(i.notice.formNo)}.pdf`, data: bufs[k] }));
+    const skipped = items.filter((i) => i.skipped);
+    if (skipped.length) entries.push({ name: '_skipped.txt', data: Buffer.from(skipped.map((i) => `${i.sub.formNo || '#' + i.sub.id}\t${i.skipped}`).join('\n') + '\n') });
+    await audit(req, 'export.notices', { entity: 'Submission', summary: `Downloaded ${todo.length} notice PDF(s) as ZIP${req.query.templateId ? ` (template ${req.query.templateId})` : ' (by status)'}`, details: { ids } });
+    const day = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="notices-${day}.zip"`);
+    res.send(zipBuffer(entries));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // ---------- Attachments (secure download, admin only) ----------
 router.get('/attachments/:id', requirePerm('submissions'), async (req, res) => {
   const att = await Attachment.findByPk(req.params.id);

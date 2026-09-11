@@ -96,6 +96,11 @@ export default function TrackPage() {
                     <button className="btn ghost" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/pdf`, `application-${s.formNo}.pdf`, 'applicantToken')}>
                       ⬇ Download Form (PDF)
                     </button>
+                    {s.notice && (
+                      <button className="btn" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/notice`, `notice-${s.formNo}.pdf`, 'applicantToken')}>
+                        📄 {s.notice.title || 'Notice'} (PDF)
+                      </button>
+                    )}
                     {s.paymentStatus === 'paid' && (
                       <button className="btn ghost" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/receipt`, `receipt-${s.formNo}.pdf`, 'applicantToken')}>
                         🧾 Payment Receipt

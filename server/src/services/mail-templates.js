@@ -17,6 +17,9 @@ const DEFAULT_TEMPLATES = [
   {
     id: 'selected',
     name: 'Selected — provisional admission (fee payment)',
+    title: 'Provisional Admission Notice',
+    statuses: ['Selected', 'Shortlisted', 'Provisionally Admitted'],
+    portal: false,
     subject: 'Provisional admission — Form No {{form_no}} — {{school}}',
     html: [
       '<p><b>Dear Parent,</b></p>',
@@ -37,6 +40,9 @@ const DEFAULT_TEMPLATES = [
   {
     id: 'not-selected',
     name: 'Not selected — regret',
+    title: 'Admission Result',
+    statuses: ['Not Selected', 'Rejected', 'Waitlisted'],
+    portal: false,
     subject: 'Admission result — Form No {{form_no}} — {{school}}',
     html: [
       '<p><b>Dear Parent,</b></p>',
@@ -60,6 +66,30 @@ function clean(t) {
     name: String(t.name || '').trim().slice(0, 120) || 'Untitled template',
     subject: String(t.subject || '').trim().slice(0, 300) || 'Message from {{school}}',
     html: sanitizeHtml(String(t.html || ''), SANITIZE),
+    // Notice PDF heading, e.g. "Provisional Admission Notice"
+    title: String(t.title || '').trim().slice(0, 120) || 'Notice',
+    // Status names this letter applies to (used for "notice as per status" and the parent portal)
+    statuses: Array.isArray(t.statuses) ? [...new Set(t.statuses.map((x) => String(x).trim()).filter(Boolean))].slice(0, 30) : [],
+    // Show as a downloadable Notice PDF on the parent's Track page when their status matches
+    portal: t.portal === true || t.portal === 'true',
+  };
+}
+
+/** The template whose statuses include this status name (case-insensitive), or null. */
+function templateForStatus(list, statusName) {
+  const n = String(statusName || '').trim().toLowerCase();
+  if (!n) return null;
+  return list.find((t) => t.statuses.some((x) => x.toLowerCase() === n)) || null;
+}
+
+/** Data for one notice PDF page. */
+function noticeFor(tpl, sub, studentName) {
+  const vars = varsFor(sub, studentName);
+  const r = render(tpl, vars);
+  const date = new Date(Date.now() + 330 * 60000).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return {
+    formNo: vars.form_no, studentName: vars.student_name, parentName: vars.name, className: vars.class, session: vars.session, form: vars.form,
+    title: fill(tpl.title, vars, false), html: r.html, date, subject: r.subject,
   };
 }
 
@@ -141,4 +171,4 @@ function unresolved(str) {
   return [...String(str).matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]);
 }
 
-module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, DEFAULT_TEMPLATES };
+module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, templateForStatus, noticeFor, DEFAULT_TEMPLATES };

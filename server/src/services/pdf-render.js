@@ -55,4 +55,34 @@ function renderPdfBuffer(subs, { timeoutMs = 20000, label = '' } = {}) {
   });
 }
 
-module.exports = { renderPdfBuffer };
+/**
+ * Render SEPARATE notice PDFs (one per entry) in one worker with a hard
+ * timeout. Always resolves with an array of valid PDF buffers (error PDFs
+ * if the render failed), same length and order as `notices`.
+ */
+function renderNoticePdfs(notices, { timeoutMs = 20000, label = 'notices' } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let worker;
+    const finish = (bufs) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (worker) worker.terminate().catch(() => {});
+      resolve(bufs);
+    };
+    const fail = async (why) => {
+      console.error(`[pdf] notice render failed for ${label}: ${why}`);
+      const err = await errorPdfBuffer(label, why);
+      finish(notices.map(() => err));
+    };
+    const timer = setTimeout(() => fail(`timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
+    try { worker = new Worker(path.join(__dirname, 'pdf-worker.js')); } catch (e) { return fail(e.message); }
+    worker.once('message', (m) => (m.ok ? finish(m.bufs.map((b) => Buffer.from(b))) : fail(m.error)));
+    worker.once('error', (e) => fail(e.message));
+    worker.once('exit', (code) => { if (!settled && code !== 0) fail(`render worker exited unexpectedly (code ${code})`); });
+    try { worker.postMessage({ notices }); } catch (e) { fail(e.message); }
+  });
+}
+
+module.exports = { renderPdfBuffer, renderNoticePdfs };

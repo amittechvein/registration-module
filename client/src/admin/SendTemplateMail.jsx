@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { adminApi, errMsg } from '../lib/api.js';
+import { adminApi, errMsg, downloadBlob, hasPerm } from '../lib/api.js';
 
 /**
  * "Send Email" panel for the Submissions page. Flow — deliberately slow:
@@ -130,6 +130,11 @@ export default function SendTemplateMail({ ids, onClose, onSent }) {
                   {busy ? 'Sending…' : `Send to ${preview.sendable} applicant(s)`}
                 </button>
                 {!preview.sendable && <span className="muted">Nobody in this selection can receive the email (no email addresses).</span>}
+                {hasPerm('export') && (
+                  <button className="btn ghost" disabled={busy} onClick={() => downloadBlob(`/api/admin/export/notices.zip?ids=${ids.join(',')}&templateId=${encodeURIComponent(templateId)}`, `notices-${templateId}.zip`)} title="One PDF per student using this template, zipped">
+                    ⬇ Download as PDF notices (ZIP)
+                  </button>
+                )}
               </div>
             </>
           )}
