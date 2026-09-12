@@ -540,6 +540,20 @@ router.get('/my-submissions/:id/notice', async (req, res) => {
   res.send(buf);
 });
 
+// Extra PDF given with the notice (e.g. fee structure) — same publish rules as the notice
+router.get('/my-submissions/:id/notice-file', async (req, res) => {
+  const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: [{ model: FormStatus, as: 'status' }] });
+  if (!s || s.isDraft || !s.formNo) return res.status(404).json({ error: 'Not found' });
+  const mt = require('../services/mail-templates');
+  const tpl = mt.templateForStatus(await mt.listTemplates(), s.status?.name);
+  if (!tpl || !tpl.portal) return res.status(404).json({ error: 'Not available' });
+  const f = await mt.getTemplateFile(tpl);
+  if (!f) return res.status(404).json({ error: 'No file available' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${f.name}"`);
+  res.send(f.buffer);
+});
+
 router.get('/my-submissions/:id/receipt', async (req, res) => {
   const s = await Submission.findOne({ where: { id: req.params.id, applicantId: req.applicant.id }, include: myPdfInclude });
   if (!s || s.isDraft) return res.status(404).json({ error: 'Not found' });

@@ -900,6 +900,33 @@ router.put('/mail-templates', requirePerm('settings'), async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Attach / replace / remove the extra PDF (e.g. fee structure) given with a template's notice
+const tplFileUpload = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+router.post('/mail-templates/:id/file', requirePerm('settings'), (req, res) => {
+  tplFileUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File must be 5 MB or smaller' : err.message });
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      const tpl = await mailTemplates.setTemplateFile(req.params.id, req.file, req.body.label);
+      await audit(req, 'mailtemplate.file', { entity: 'Setting', summary: `Attached "${tpl.fileName}" (${Math.round(req.file.size / 1024)} KB) to email template "${tpl.name}"` });
+      res.json(tpl);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+});
+router.delete('/mail-templates/:id/file', requirePerm('settings'), async (req, res) => {
+  await mailTemplates.clearTemplateFile(req.params.id);
+  await audit(req, 'mailtemplate.file', { entity: 'Setting', summary: `Removed attached file from email template ${req.params.id}` });
+  res.json({ ok: true });
+});
+router.get('/mail-templates/:id/file', requirePerm('communicate', 'settings'), async (req, res) => {
+  const tpl = (await mailTemplates.listTemplates()).find((t) => t.id === req.params.id);
+  const f = await mailTemplates.getTemplateFile(tpl);
+  if (!f) return res.status(404).json({ error: 'No file attached' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${f.name}"`);
+  res.send(f.buffer);
+});
+
 router.post('/mail-templates/reset', requirePerm('settings'), async (req, res) => {
   const saved = await mailTemplates.saveTemplates(mailTemplates.DEFAULT_TEMPLATES);
   await audit(req, 'mailtemplate.reset', { entity: 'Setting', summary: 'Email templates reset to defaults' });
@@ -1035,6 +1062,11 @@ router.get('/export/notices.zip', requirePerm('export'), async (req, res) => {
     const { zipBuffer } = require('../services/zip');
     const bufs = await renderNoticePdfs(todo.map((i) => i.notice), { timeoutMs: Math.min(55000, 10000 + todo.length * 400), label: `${todo.length} notices` });
     const entries = todo.map((i, k) => ({ name: `${safeName(i.statusName || 'no-status')}/${safeName(i.notice.formNo)}.pdf`, data: bufs[k] }));
+    // the extra PDF (fee structure etc.) once per template used, at the top level
+    for (const tpl of [...new Set(todo.map((i) => i.tpl))]) {
+      const f = await mailTemplates.getTemplateFile(tpl);
+      if (f) entries.push({ name: `_${safeName(tpl.name)}--${safeName(f.name)}`, data: f.buffer });
+    }
     const skipped = items.filter((i) => i.skipped);
     if (skipped.length) entries.push({ name: '_skipped.txt', data: Buffer.from(skipped.map((i) => `${i.sub.formNo || '#' + i.sub.id}\t${i.skipped}`).join('\n') + '\n') });
     await audit(req, 'export.notices', { entity: 'Submission', summary: `Downloaded ${todo.length} notice PDF(s) as ZIP${req.query.templateId ? ` (template ${req.query.templateId})` : ' (by status)'}`, details: { ids } });

@@ -36,6 +36,7 @@ const DEFAULT_TEMPLATES = [
       '<p>You can make your payments through <b>Credit Card, Net Banking and Wallet</b></p>',
       '<p>Profile of your child has been linked to the registered phone number used during the form submission.</p>',
       '<p>For any support, queries and concerns related to the fee payment, please contact 9733312464</p>',
+      '<p>The admission notice and the fee structure can also be downloaded from the school\'s admission portal: <a href="{{portal_url}}">{{portal_url}}</a> (login with your registered mobile number).</p>',
       '<p><span style="background:#ffff00"><b>*NOTE:</b> The payment portal will be active from 16th September 2026 till 20th September 2026. Provisional admission will be cancelled in case the admission fee is not paid till 20th September 2026.</span></p>',
       '<p>Best Regards,<br>(Nirmala Convent School)</p>',
     ].join('\n'),
@@ -85,7 +86,45 @@ function clean(t) {
     tone: ['success', 'regret', 'info'].includes(t.tone) ? t.tone : 'info',
     portalHeading: String(t.portalHeading || '').trim().slice(0, 120),
     portalMessage: String(t.portalMessage || '').trim().slice(0, 1000),
+    // Optional extra PDF given with this notice (e.g. fee structure) — the file
+    // itself lives in Setting MAIL_TEMPLATE_FILE_<id>; only its name is kept here.
+    fileName: String(t.fileName || '').trim().slice(0, 120),
+    fileLabel: String(t.fileLabel || '').trim().slice(0, 80),
   };
+}
+
+const FILE_KEY = (id) => `MAIL_TEMPLATE_FILE_${String(id).replace(/[^a-z0-9-]/gi, '')}`;
+const FILE_MAX = 5 * 1024 * 1024;
+
+/** Store a PDF for a template (replaces any previous one). */
+async function setTemplateFile(id, { buffer, originalname }, label) {
+  if (!buffer || !buffer.length) throw new Error('Empty file');
+  if (buffer.length > FILE_MAX) throw new Error('File must be 5 MB or smaller');
+  if (buffer.slice(0, 5).toString() !== '%PDF-') throw new Error('Only PDF files can be attached');
+  const list = await listTemplates();
+  const tpl = list.find((t) => t.id === id);
+  if (!tpl) throw new Error('Template not found');
+  const [row] = await Setting.findOrCreate({ where: { key: FILE_KEY(id) }, defaults: { key: FILE_KEY(id), value: '' } });
+  await row.update({ value: buffer.toString('base64') });
+  tpl.fileName = String(originalname || 'attachment.pdf').replace(/[^\w.() -]+/g, '-').slice(0, 120);
+  tpl.fileLabel = String(label || '').trim().slice(0, 80) || tpl.fileName.replace(/\.pdf$/i, '');
+  await saveTemplates(list);
+  return tpl;
+}
+
+async function clearTemplateFile(id) {
+  await Setting.destroy({ where: { key: FILE_KEY(id) } });
+  const list = await listTemplates();
+  const tpl = list.find((t) => t.id === id);
+  if (tpl) { tpl.fileName = ''; tpl.fileLabel = ''; await saveTemplates(list); }
+}
+
+/** { name, label, buffer } or null. */
+async function getTemplateFile(tpl) {
+  if (!tpl || !tpl.fileName) return null;
+  const row = await Setting.findOne({ where: { key: FILE_KEY(tpl.id) } });
+  if (!row || !row.value) return null;
+  return { name: tpl.fileName, label: tpl.fileLabel || tpl.fileName, buffer: Buffer.from(row.value, 'base64') };
 }
 
 /** What the parent's Track page shows for this template + submission (null if not published). */
@@ -97,6 +136,7 @@ function portalNoticeFor(tpl, sub) {
     tone: tpl.tone,
     heading: fill(tpl.portalHeading, vars, false) || fill(tpl.title, vars, false),
     message: fill(tpl.portalMessage, vars, false),
+    file: tpl.fileName ? { label: tpl.fileLabel || tpl.fileName, name: tpl.fileName } : null,
   };
 }
 
@@ -180,6 +220,7 @@ function varsFor(sub, studentName) {
     session: a.session?.name || '',
     form: a.title || '',
     school: SCHOOL,
+    portal_url: (process.env.PUBLIC_BASE_URL || 'https://form.techvein.org').replace(/\/$/, '') + '/track',
   };
 }
 
@@ -196,4 +237,4 @@ function unresolved(str) {
   return [...String(str).matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]);
 }
 
-module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, templateForStatus, noticeFor, portalNoticeFor, DEFAULT_TEMPLATES };
+module.exports = { listTemplates, saveTemplates, render, varsFor, htmlToText, unresolved, templateForStatus, noticeFor, portalNoticeFor, setTemplateFile, clearTemplateFile, getTemplateFile, DEFAULT_TEMPLATES };

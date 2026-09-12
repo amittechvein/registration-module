@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { adminApi, errMsg, hasPerm } from '../lib/api.js';
+import { adminApi, errMsg, hasPerm, blobUrl } from '../lib/api.js';
 import RichTextEditor from '../components/RichTextEditor.jsx';
 
 const PLACEHOLDERS = [
@@ -11,6 +11,7 @@ const PLACEHOLDERS = [
   ['{{form}}', 'Form title'],
   ['{{phone}}', 'Registered mobile'],
   ['{{school}}', 'School name'],
+  ['{{portal_url}}', 'Link to the parent Track page'],
 ];
 
 export default function MailTemplates() {
@@ -27,6 +28,23 @@ export default function MailTemplates() {
     // every status name used by any form, for the "applies to statuses" picker
     adminApi.get('/activations').then((r) => setStatusNames([...new Set(r.data.flatMap((a) => (a.statuses || []).map((st) => st.name)))].sort())).catch(() => {});
   }, []);
+  const [fileLabel, setFileLabel] = useState('');
+  const uploadFile = async (file) => {
+    if (!file || !t) return;
+    setBusy(true); setMsg(null);
+    try {
+      const fd = new FormData(); fd.append('file', file); fd.append('label', fileLabel || '');
+      const { data } = await adminApi.post(`/mail-templates/${t.id}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setList((l) => l.map((x, i) => (i === cur ? { ...x, fileName: data.fileName, fileLabel: data.fileLabel } : x)));
+      setMsg({ type: 'ok', text: `Attached "${data.fileName}" — parents with this status will see a "${data.fileLabel}" download next to the notice.` });
+    } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); }
+    setBusy(false);
+  };
+  const removeFile = async () => {
+    if (!t?.fileName || !window.confirm(`Remove "${t.fileName}" from this template?`)) return;
+    try { await adminApi.delete(`/mail-templates/${t.id}/file`); setList((l) => l.map((x, i) => (i === cur ? { ...x, fileName: '', fileLabel: '' } : x))); }
+    catch (e) { setMsg({ type: 'err', text: errMsg(e) }); }
+  };
   const toggleStatus = (name) => {
     const cur = t?.statuses || [];
     patch({ statuses: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] });
@@ -127,6 +145,29 @@ export default function MailTemplates() {
               <label className="fld">Popup message
                 <textarea rows={3} value={t.portalMessage || ''} onChange={(e) => patch({ portalMessage: e.target.value })} disabled={!canEdit} placeholder="Your child has been selected … Click below to download the notice." />
               </label>
+            </div>
+            <div className="card" style={{ background: '#f8fafc' }}>
+              <b>📎 Extra PDF given with this notice</b> <span className="muted">— e.g. the fee structure. Shown as a second download on the parent's Track page and included in the Notices ZIP. (Emails cannot carry attachments; the email links parents to the portal instead.)</span>
+              <div className="toolbar" style={{ marginTop: 8, alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {t.fileName
+                  ? <>
+                      <span className="pill on">{t.fileLabel || t.fileName}</span>
+                      <button className="btn small ghost" onClick={async () => { try { window.open(await blobUrl(`/api/admin/mail-templates/${t.id}/file`), '_blank'); } catch (e) { setMsg({ type: 'err', text: errMsg(e) }); } }}>View</button>
+                      {canEdit && <button className="btn small danger" onClick={removeFile}>Remove</button>}
+                      {canEdit && <span className="muted">Replace: choose another file below.</span>}
+                    </>
+                  : <span className="muted">No file attached.</span>}
+              </div>
+              {canEdit && (
+                <div className="toolbar" style={{ marginTop: 6, alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <label className="fld" style={{ marginBottom: 0 }}>Button label for parents
+                    <input type="text" value={fileLabel} onChange={(e) => setFileLabel(e.target.value)} placeholder="Fee Structure" style={{ width: 200 }} />
+                  </label>
+                  <label className="fld" style={{ marginBottom: 0 }}>PDF file (max 5 MB)
+                    <input type="file" accept="application/pdf" disabled={busy} onChange={(e) => { uploadFile(e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                </div>
+              )}
             </div>
             <div className="fld">
               <span>Applies to statuses — used for "Notices PDF (by status)" and the parent Track page</span>

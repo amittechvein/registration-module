@@ -20,6 +20,7 @@ export default function TrackPage() {
   };
   const toneOf = (n) => TONE[n?.tone] || TONE.info;
   const downloadNotice = (s) => downloadBlob(`/api/public/my-submissions/${s.id}/notice`, `notice-${s.formNo}.pdf`, 'applicantToken');
+  const downloadNoticeFile = (s) => downloadBlob(`/api/public/my-submissions/${s.id}/notice-file`, s.notice?.file?.name || 'document.pdf', 'applicantToken');
   useEffect(() => {
     publicApi.get('/school-info')
       .then((r) => setClosed(r.data.trackEnabled === false ? (r.data.trackClosedMessage || 'Application tracking is temporarily unavailable.') : false))
@@ -83,6 +84,9 @@ export default function TrackPage() {
               <button className="btn" style={{ background: toneOf(popup.notice).btn, borderColor: toneOf(popup.notice).btn }} onClick={() => downloadNotice(popup)}>
                 📄 Download {popup.notice.title || 'Notice'} (PDF)
               </button>
+              {popup.notice.file && (
+                <button className="btn ghost" onClick={() => downloadNoticeFile(popup)}>📎 {popup.notice.file.label} (PDF)</button>
+              )}
               <button className="btn ghost" onClick={() => setPopup(null)}>Close</button>
             </div>
           </div>
@@ -135,6 +139,9 @@ export default function TrackPage() {
                       <button className="btn" style={{ background: toneOf(s.notice).btn, borderColor: toneOf(s.notice).btn }} onClick={() => downloadNotice(s)}>
                         📄 {s.notice.title || 'Notice'} (PDF)
                       </button>
+                    )}
+                    {s.notice?.file && (
+                      <button className="btn ghost" onClick={() => downloadNoticeFile(s)}>📎 {s.notice.file.label} (PDF)</button>
                     )}
                     {s.paymentStatus === 'paid' && (
                       <button className="btn ghost" onClick={() => downloadBlob(`/api/public/my-submissions/${s.id}/receipt`, `receipt-${s.formNo}.pdf`, 'applicantToken')}>
