@@ -23,8 +23,8 @@ const GROUPS = [
     hint: 'Every day at the chosen time (IST), all active users with Role: Owner receive an email with a summary of every active form (submissions, last-24h count, fees collected, status breakdown) and a secure link (valid 3 days) to download the complete submissions Excel. Requires Email to be configured above.',
   },
   {
-    id: 'auth', title: 'Login Options (Google Sign-In)',
-    hint: 'In console.cloud.google.com → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application): (1) under "Authorized redirect URIs" add https://form.techvein.org/api/public/auth/google/callback, (2) copy the Client ID AND the Client Secret and paste both below. With both saved, sign-in uses the reliable full-page redirect (no popups). Admin Google login only works for emails that exist in Users.',
+    id: 'auth', title: 'Login Options (Google & TatvaOS Sign-In)',
+    hint: 'GOOGLE: in console.cloud.google.com → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application): add https://form.techvein.org/api/public/auth/google/callback under "Authorized redirect URIs", then paste the Client ID and Client Secret. TATVAOS: in TatvaOS admin → Organisation → Applications → New application, redirect URI https://form.techvein.org/api/public/auth/tatvaos/callback (exact match), Server application = Yes; paste the Client ID (tos_…) and Client Secret (toss_…, shown once). Optionally enter your Organisation ID to refuse sign-ins from any other TatvaOS organisation. For both: admin sign-in only works for emails that exist in Users; parents get an account automatically. Buttons appear on the login screens as soon as ID + Secret are saved.',
   },
 ];
 

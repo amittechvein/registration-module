@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { publicApi, errMsg } from '../lib/api.js';
 import GoogleButton from './GoogleButton.jsx';
+import TatvaOSButton from './TatvaOSButton.jsx';
 
 /** Phone-OTP login (OTP sent by SMS + email) or Google sign-in. */
 export default function OtpLogin({ onLoggedIn, askProfile = true }) {
@@ -63,6 +64,7 @@ export default function OtpLogin({ onLoggedIn, askProfile = true }) {
           </div>
           <button className="btn" disabled={busy || phone.length !== 10}>Send OTP</button>
           <GoogleButton role="applicant" onCredential={google} />
+          <TatvaOSButton role="applicant" />
         </form>
       )}
       {step === 2 && (

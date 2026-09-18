@@ -124,6 +124,7 @@ const Applicant = sequelize.define('Applicant', {
   name: DataTypes.STRING,
   email: DataTypes.STRING,
   googleId: { type: DataTypes.STRING, allowNull: true },
+  tatvaosId: { type: DataTypes.STRING, allowNull: true }, // TatvaOS SSO `sub` (permanent user id)
   otp: DataTypes.STRING, // bcrypt hash of the OTP — never stored in plain text
   otpExpiresAt: DataTypes.DATE,
   otpAttempts: { type: DataTypes.INTEGER, defaultValue: 0 },

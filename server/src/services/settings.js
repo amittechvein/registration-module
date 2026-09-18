@@ -21,6 +21,9 @@ const SETTING_DEFS = [
   // Login options
   { key: 'GOOGLE_CLIENT_ID', group: 'auth', label: 'Google OAuth Client ID', secret: false },
   { key: 'GOOGLE_CLIENT_SECRET', group: 'auth', label: 'Google OAuth Client Secret', secret: true },
+  { key: 'TATVAOS_CLIENT_ID', group: 'auth', label: 'TatvaOS Client ID (tos_…)', secret: false },
+  { key: 'TATVAOS_CLIENT_SECRET', group: 'auth', label: 'TatvaOS Client Secret (toss_…)', secret: true },
+  { key: 'TATVAOS_TENANT_ID', group: 'auth', label: 'TatvaOS Organisation ID (optional — restrict sign-in to one org)', secret: false },
   // Email — TatvaOS Mail API (one endpoint, one key; see TatvaOS Mail API Integration Guide)
   { key: 'TATVAOS_MAIL_KEY', group: 'email', label: 'TatvaOS API Key (tvos_…)', secret: true },
   { key: 'MAIL_FROM', group: 'email', label: 'From Address (a mailbox on your verified domain)', secret: false },

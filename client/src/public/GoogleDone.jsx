@@ -2,18 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { storeAdminSession } from '../lib/api.js';
 
-/** Landing page for the Google OAuth redirect flow — stores the session and
- *  sends the user back to where they started. */
+/** Landing page for the Google / TatvaOS sign-in redirect flows — stores the
+ *  session and sends the user back to where they started. */
 export default function GoogleDone() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [wasAdmin, setWasAdmin] = useState(false);
+  const [provider, setProvider] = useState('');
 
   useEffect(() => {
     try {
       let b64 = window.location.hash.slice(1).replace(/-/g, '+').replace(/_/g, '/');
       while (b64.length % 4) b64 += '=';
       const p = JSON.parse(decodeURIComponent(escape(atob(b64))));
+      setProvider(p.provider || 'Google');
       if (p.error) {
         setError(p.error);
         setWasAdmin(/admin/i.test(p.error));
@@ -39,7 +41,7 @@ export default function GoogleDone() {
         {!error ? (
           <>
             <h2>Signing you in…</h2>
-            <p className="muted">One moment while we complete your Google sign-in.</p>
+            <p className="muted">One moment while we complete your {provider || ''} sign-in.</p>
           </>
         ) : (
           <>

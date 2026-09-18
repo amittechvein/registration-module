@@ -98,7 +98,67 @@ router.get('/auth/config', async (_req, res) => {
     // With a client secret configured we use the reliable full-page redirect
     // flow (no popups / third-party cookies). Without it, the JS button is used.
     redirectFlow: !!(cfg.GOOGLE_CLIENT_ID && cfg.GOOGLE_CLIENT_SECRET),
+    tatvaosEnabled: !!(cfg.TATVAOS_CLIENT_ID && cfg.TATVAOS_CLIENT_SECRET),
   });
+});
+
+// ---------- Sign in with TatvaOS (OpenID Connect + PKCE, full-page redirect) ----------
+const tvos = require('../services/tatvaos-sso');
+const isSecure = (req) => (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim() === 'https';
+
+router.get('/auth/tatvaos/start', async (req, res) => {
+  const { getConfig } = require('../services/settings');
+  const cfg = await getConfig();
+  if (!cfg.TATVAOS_CLIENT_ID || !cfg.TATVAOS_CLIENT_SECRET) {
+    return res.status(400).send('TatvaOS login is not configured (Client ID + Client Secret needed in Settings → Login Options)');
+  }
+  const role = req.query.role === 'admin' ? 'admin' : 'applicant';
+  let next = String(req.query.next || '');
+  if (!next.startsWith('/') || next.startsWith('//')) next = role === 'admin' ? '/admin' : '/';
+  const { url, cookie } = tvos.beginLogin({ clientId: cfg.TATVAOS_CLIENT_ID, redirectUri: baseUrl(req) + '/api/public/auth/tatvaos/callback', role, next });
+  res.setHeader('Set-Cookie', tvos.setCookieHeader(cookie, isSecure(req)));
+  res.redirect(url);
+});
+
+router.get('/auth/tatvaos/callback', async (req, res) => {
+  const fail = (message) => res.redirect('/google-done#' + Buffer.from(JSON.stringify({ error: message, provider: 'TatvaOS' })).toString('base64url'));
+  res.setHeader('Set-Cookie', tvos.clearCookieHeader(isSecure(req)));
+  try {
+    const { getConfig } = require('../services/settings');
+    const cfg = await getConfig();
+    const who = await tvos.completeLogin(req, {
+      clientId: cfg.TATVAOS_CLIENT_ID, clientSecret: cfg.TATVAOS_CLIENT_SECRET,
+      redirectUri: baseUrl(req) + '/api/public/auth/tatvaos/callback', tenantId: cfg.TATVAOS_TENANT_ID,
+    });
+    let payload;
+    if (who.role === 'admin') {
+      if (!who.email) return fail('Your TatvaOS account has no email address — an admin user is matched by email.');
+      const user = await AdminUser.findOne({ where: { email: who.email } });
+      if (!user || !user.active) return fail(`No admin user exists for ${who.email}. Ask the owner to create one in Users.`);
+      let perms = {}; try { perms = JSON.parse(user.permissions || '{}'); } catch {}
+      await audit(req, 'login', { entity: 'AdminUser', entityId: user.id, summary: `${user.name} logged in (TatvaOS)`, actor: { id: user.id, name: user.name, type: 'admin' } });
+      payload = {
+        role: 'admin', provider: 'TatvaOS', next: who.next || '/admin',
+        token: sign({ role: 'admin', id: user.id, name: user.name, adminRole: user.role || 'owner', perms }),
+        name: user.name, adminRole: user.role || 'owner', perms,
+      };
+    } else {
+      // key by the permanent `sub`, never by email (emails change) — email only links a pre-existing account once
+      let applicant = await Applicant.findOne({ where: { tatvaosId: who.sub } });
+      if (!applicant && who.email && who.emailVerified) applicant = await Applicant.findOne({ where: { email: who.email } });
+      if (!applicant) applicant = await Applicant.create({ email: who.email || null, name: who.name || '', tatvaosId: who.sub });
+      else await applicant.update({ tatvaosId: who.sub, ...(applicant.name ? {} : { name: who.name || '' }), ...(applicant.email ? {} : { email: who.email || null }) });
+      payload = {
+        role: 'applicant', provider: 'TatvaOS', next: who.next || '/',
+        token: sign({ role: 'applicant', id: applicant.id, phone: applicant.phone || '' }),
+        applicant: { id: applicant.id, phone: applicant.phone, name: applicant.name, email: applicant.email },
+      };
+    }
+    res.redirect('/google-done#' + Buffer.from(JSON.stringify(payload)).toString('base64url'));
+  } catch (e) {
+    console.error('[tatvaos-sso] callback error:', e.message);
+    fail(e.message);
+  }
 });
 
 // ---------- Google Sign-In via OAuth redirect flow (most reliable) ----------

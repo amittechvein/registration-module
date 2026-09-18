@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, errMsg, storeAdminSession } from '../lib/api.js';
 import GoogleButton from '../components/GoogleButton.jsx';
+import TatvaOSButton from '../components/TatvaOSButton.jsx';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -43,6 +44,7 @@ export default function Login() {
         <button className="btn" style={{ width: '100%' }}>Sign in</button>
       </form>
       <GoogleButton role="admin" onCredential={google} />
+      <TatvaOSButton role="admin" />
     </div>
     </div>
   );
