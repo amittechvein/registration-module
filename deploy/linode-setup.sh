@@ -66,7 +66,7 @@ echo "==> Safety backup BEFORE updating (data protection for live forms/payments
 mkdir -p /opt/backups
 if sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='registration'" | grep -q 1; then
   # A failed snapshot aborts the deploy (set -e) — never deploy without one.
-  /usr/local/bin/registration-backup pre-deploy 3
+  /usr/local/bin/registration-backup pre-deploy 1
   echo "    Restore: sudo -u postgres pg_restore -d registration --clean --if-exists --no-owner /opt/backups/FILE.dump"
 fi
 
@@ -142,14 +142,14 @@ EOF
 systemctl daemon-reload
 systemctl enable --now registration-watchdog.timer
 
-echo "==> Installing nightly database backup (2:30 AM IST, keeps 7 good dumps; emails Owners on failure)…"
+echo "==> Installing nightly database backup (2:30 AM IST, keeps 3 good dumps; emails Owners on failure)…"
 cat > /etc/systemd/system/registration-backup.service <<'EOF'
 [Unit]
 Description=Nightly registration database backup
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/registration-backup nightly 7
+ExecStart=/usr/local/bin/registration-backup nightly 3
 EOF
 cat > /etc/systemd/system/registration-backup.timer <<'EOF'
 [Unit]
